@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <stdexcept>
 
+#include "oak_ffc_camera_imu/camera_controls.h"
 #include "rclcpp_components/register_node_macro.hpp"
 
 namespace oak_ffc_camera_imu {
@@ -43,8 +44,19 @@ void OakFfcCameraImuComponent::startDevice() {
       config_.fps,
       config_.imu_hz,
       config_.compressed ? "true" : "false");
+  if (config_.manual_exposure_us > 0) {
+    RCLCPP_INFO(
+        get_logger(),
+        "Using manual camera exposure: exposure=%dus iso=%d",
+        config_.manual_exposure_us,
+        config_.manual_iso);
+  }
+  if (config_.manual_wb_kelvin > 0) {
+    RCLCPP_INFO(get_logger(), "Using manual white balance: %dK", config_.manual_wb_kelvin);
+  }
 
   device_ = std::make_unique<dai::Device>(pipeline_bundle_.pipeline);
+  openCameraControlQueues();
 
   auto sync_queue = device_->getOutputQueue("sync", config_.image_queue_size, false);
   image_publisher_ = std::make_unique<SyncedImagePublisher>(
@@ -61,13 +73,35 @@ void OakFfcCameraImuComponent::startDevice() {
   imu_publisher_->start();
 }
 
+void OakFfcCameraImuComponent::openCameraControlQueues() {
+  camera_control_queues_.clear();
+  for (const auto& stream : pipeline_bundle_.control_streams) {
+    camera_control_queues_[stream.first] = device_->getInputQueue(stream.second, 4, false);
+  }
+}
+
+void OakFfcCameraImuComponent::sendCameraControls(const DriverConfig& config) {
+  if (camera_control_queues_.empty()) {
+    return;
+  }
+
+  auto control = makeCameraControl(config);
+  for (const auto& queue : camera_control_queues_) {
+    queue.second->send(control);
+  }
+}
+
 rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersChanged(
     const std::vector<rclcpp::Parameter>& parameters) {
   auto updated = config_;
+  bool camera_controls_changed = false;
+  bool pipeline_parameters_changed = false;
 
   try {
     for (const auto& parameter : parameters) {
       const auto& name = parameter.get_name();
+      camera_controls_changed = camera_controls_changed || isCameraControlParameter(name);
+      pipeline_parameters_changed = pipeline_parameters_changed || !isCameraControlParameter(name);
       if (name == "tf_prefix") {
         updated.tf_prefix = parameter.as_string();
       } else if (name == "camera_name") {
@@ -94,6 +128,28 @@ rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersC
         updated.imu_queue_size = static_cast<int>(parameter.as_int());
       } else if (name == "lazy_publisher") {
         updated.lazy_publisher = parameter.as_bool();
+      } else if (name == "manual_exposure_us") {
+        updated.manual_exposure_us = static_cast<int>(parameter.as_int());
+      } else if (name == "manual_iso") {
+        updated.manual_iso = static_cast<int>(parameter.as_int());
+      } else if (name == "exposure_compensation") {
+        updated.exposure_compensation = static_cast<int>(parameter.as_int());
+      } else if (name == "manual_wb_kelvin") {
+        updated.manual_wb_kelvin = static_cast<int>(parameter.as_int());
+      } else if (name == "brightness") {
+        updated.brightness = static_cast<int>(parameter.as_int());
+      } else if (name == "contrast") {
+        updated.contrast = static_cast<int>(parameter.as_int());
+      } else if (name == "saturation") {
+        updated.saturation = static_cast<int>(parameter.as_int());
+      } else if (name == "sharpness") {
+        updated.sharpness = static_cast<int>(parameter.as_int());
+      } else if (name == "luma_denoise") {
+        updated.luma_denoise = static_cast<int>(parameter.as_int());
+      } else if (name == "chroma_denoise") {
+        updated.chroma_denoise = static_cast<int>(parameter.as_int());
+      } else if (name == "manual_focus") {
+        updated.manual_focus = static_cast<int>(parameter.as_int());
       }
     }
     validateConfig(updated);
@@ -104,10 +160,25 @@ rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersC
     return result;
   }
 
+  if (camera_controls_changed) {
+    try {
+      sendCameraControls(updated);
+      RCLCPP_INFO(get_logger(), "Applied updated camera controls to the running OAK pipeline.");
+    } catch (const std::exception& error) {
+      rcl_interfaces::msg::SetParametersResult result;
+      result.successful = false;
+      result.reason = error.what();
+      return result;
+    }
+  }
+
   config_ = updated;
-  RCLCPP_WARN(
-      get_logger(),
-      "OAK pipeline parameters were updated in ROS. Restart this node for camera hardware changes to take effect.");
+
+  if (pipeline_parameters_changed) {
+    RCLCPP_WARN(
+        get_logger(),
+        "OAK pipeline parameter was updated in ROS. Restart this node for hardware pipeline changes to take effect.");
+  }
 
   rcl_interfaces::msg::SetParametersResult result;
   result.successful = true;

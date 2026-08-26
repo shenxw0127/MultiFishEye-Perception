@@ -2,6 +2,8 @@
 
 #include <chrono>
 
+#include "oak_ffc_camera_imu/camera_controls.h"
+
 namespace oak_ffc_camera_imu {
 namespace {
 
@@ -65,6 +67,9 @@ PipelineBundle createPipeline(const DriverConfig& config) {
   for (const auto& board_socket_name : config.cam_board_sockets) {
     const auto socket_config = cameraSocketOptions().at(board_socket_name);
     auto video_encoder = bundle.pipeline.create<dai::node::VideoEncoder>();
+    auto control_in = bundle.pipeline.create<dai::node::XLinkIn>();
+    const auto control_stream = "control_" + board_socket_name;
+    control_in->setStreamName(control_stream);
 
     if (config.compressed) {
       video_encoder->setDefaultProfilePreset(config.fps, dai::VideoEncoderProperties::Profile::MJPEG);
@@ -76,6 +81,10 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       camera->setBoardSocket(socket_config.socket);
       camera->setResolution(resolution.color_resolution);
       camera->setFps(config.fps);
+      camera->inputControl.setBlocking(false);
+      camera->inputControl.setQueueSize(4);
+      camera->inputControl.setWaitForMessage(false);
+      control_in->out.link(camera->inputControl);
 
       if (config.compressed) {
         camera->video.link(video_encoder->input);
@@ -87,11 +96,16 @@ PipelineBundle createPipeline(const DriverConfig& config) {
           board_socket_name == config.cam_board_sockets.front()
               ? dai::CameraControl::FrameSyncMode::OUTPUT
               : dai::CameraControl::FrameSyncMode::INPUT);
+      applyCameraControls(camera->initialControl, config);
     } else {
       auto camera = bundle.pipeline.create<dai::node::MonoCamera>();
       camera->setBoardSocket(socket_config.socket);
       camera->setResolution(resolution.mono_resolution);
       camera->setFps(config.fps);
+      camera->inputControl.setBlocking(false);
+      camera->inputControl.setQueueSize(4);
+      camera->inputControl.setWaitForMessage(false);
+      control_in->out.link(camera->inputControl);
 
       if (config.compressed) {
         camera->out.link(video_encoder->input);
@@ -103,10 +117,12 @@ PipelineBundle createPipeline(const DriverConfig& config) {
           board_socket_name == config.cam_board_sockets.front()
               ? dai::CameraControl::FrameSyncMode::OUTPUT
               : dai::CameraControl::FrameSyncMode::INPUT);
+      applyCameraControls(camera->initialControl, config);
     }
 
     bundle.image_topics[board_socket_name] =
         socket_config.image_topic + (config.compressed ? "/compressed" : "");
+    bundle.control_streams[board_socket_name] = control_stream;
   }
 
   auto imu = bundle.pipeline.create<dai::node::IMU>();

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <map>
 #include <memory>
+#include <string>
 
 #include "depthai/depthai.hpp"
 #include "oak_ffc_camera_imu/config.h"
@@ -19,6 +21,8 @@ class OakFfcCameraImuComponent : public rclcpp::Node {
 
  private:
   void startDevice();
+  void openCameraControlQueues();
+  void sendCameraControls(const DriverConfig& config);
   rcl_interfaces::msg::SetParametersResult onParametersChanged(const std::vector<rclcpp::Parameter>& parameters);
 
   DriverConfig config_;
@@ -26,6 +30,7 @@ class OakFfcCameraImuComponent : public rclcpp::Node {
   std::unique_ptr<dai::Device> device_;
   std::unique_ptr<SyncedImagePublisher> image_publisher_;
   std::unique_ptr<ImuPublisher> imu_publisher_;
+  std::map<std::string, std::shared_ptr<dai::DataInputQueue>> camera_control_queues_;
   OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 

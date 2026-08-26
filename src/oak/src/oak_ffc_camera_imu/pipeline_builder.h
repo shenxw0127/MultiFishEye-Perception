@@ -13,6 +13,7 @@ struct PipelineBundle {
   int width = 0;
   int height = 0;
   std::map<std::string, std::string> image_topics;
+  std::map<std::string, std::string> control_streams;
 };
 
 PipelineBundle createPipeline(const DriverConfig& config);

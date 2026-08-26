@@ -43,6 +43,17 @@ struct DriverConfig {
   int image_queue_size = 1;
   int imu_queue_size = 50;
   bool lazy_publisher = true;
+  int manual_exposure_us = 0;
+  int manual_iso = 0;
+  int exposure_compensation = 0;
+  int manual_wb_kelvin = 0;
+  int brightness = 0;
+  int contrast = 0;
+  int saturation = 0;
+  int sharpness = 1;
+  int luma_denoise = 1;
+  int chroma_denoise = 1;
+  int manual_focus = -1;
 };
 
 const std::map<std::string, CameraSocketConfig>& cameraSocketOptions();
