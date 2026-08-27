@@ -1,3 +1,6 @@
+import os
+
+from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
@@ -6,6 +9,8 @@ from launch_ros.descriptions import ComposableNode
 
 
 def generate_launch_description():
+    pkg_dir = get_package_share_directory("oak_ros2")
+
     launch_args = [
         DeclareLaunchArgument("tf_prefix", default_value="oak"),
         DeclareLaunchArgument("camera_name", default_value="ov9782"),
@@ -13,6 +18,7 @@ def generate_launch_description():
         DeclareLaunchArgument("resolution", default_value="800p"),
         DeclareLaunchArgument("fps", default_value="30"),
         DeclareLaunchArgument("oak_fw_uri", default_value=""),
+        DeclareLaunchArgument("imu_config_path", default_value=os.path.join(pkg_dir, "config", "imu.yaml")),
         DeclareLaunchArgument("compressed", default_value="true"),
         DeclareLaunchArgument("imu_hz", default_value="200"),
         DeclareLaunchArgument("cam_board_sockets", default_value="[CAM_A, CAM_B, CAM_C, CAM_D]"),
@@ -51,6 +57,7 @@ def generate_launch_description():
                     {"resolution": LaunchConfiguration("resolution")},
                     {"fps": LaunchConfiguration("fps")},
                     {"oak_fw_uri": LaunchConfiguration("oak_fw_uri")},
+                    {"imu_config_path": LaunchConfiguration("imu_config_path")},
                     {"compressed": LaunchConfiguration("compressed")},
                     {"imu_hz": LaunchConfiguration("imu_hz")},
                     {"cam_board_sockets": LaunchConfiguration("cam_board_sockets")},

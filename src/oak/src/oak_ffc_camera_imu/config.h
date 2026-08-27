@@ -37,6 +37,7 @@ struct DriverConfig {
   int fps = 30;
   bool compressed = true;
   std::string oak_fw_uri;
+  std::string imu_config_path;
   int imu_hz = 200;
   std::vector<std::string> cam_board_sockets = {"CAM_A", "CAM_B", "CAM_C", "CAM_D"};
   int sync_threshold_ms = 50;

@@ -58,3 +58,5 @@ CATKIN_IGNORE
 CHANGELOG.md
 
 src/oak/README.md
+
+src/open_vins/

@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "depthai/depthai.hpp"
+#include "oak_ffc_camera_imu/imu_correction.h"
 #include "rclcpp/node.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 
@@ -17,7 +18,8 @@ class ImuPublisher {
       rclcpp::Node& node,
       std::shared_ptr<dai::DataOutputQueue> queue,
       std::string topic,
-      std::string frame_id);
+      std::string frame_id,
+      ImuCorrection correction);
   ~ImuPublisher();
 
   ImuPublisher(const ImuPublisher&) = delete;
@@ -33,6 +35,7 @@ class ImuPublisher {
   rclcpp::Node& node_;
   std::shared_ptr<dai::DataOutputQueue> queue_;
   std::string frame_id_;
+  ImuCorrection correction_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
   std::atomic_bool running_{false};
   std::thread thread_;

@@ -8,8 +8,9 @@ ImuPublisher::ImuPublisher(
     rclcpp::Node& node,
     std::shared_ptr<dai::DataOutputQueue> queue,
     std::string topic,
-    std::string frame_id)
-    : node_(node), queue_(std::move(queue)), frame_id_(std::move(frame_id)) {
+    std::string frame_id,
+    ImuCorrection correction)
+    : node_(node), queue_(std::move(queue)), frame_id_(std::move(frame_id)), correction_(std::move(correction)) {
   rclcpp::QoS qos(rclcpp::KeepLast(50));
   qos.best_effort();
   publisher_ = node_.create_publisher<sensor_msgs::msg::Imu>(std::move(topic), qos);
@@ -65,6 +66,7 @@ sensor_msgs::msg::Imu ImuPublisher::toRosMsg(const dai::IMUPacket& packet) const
   msg.linear_acceleration.y = packet.acceleroMeter.y;
   msg.linear_acceleration.z = packet.acceleroMeter.z;
 
+  correction_.apply(msg);
   return msg;
 }
 

@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "oak_ffc_camera_imu/camera_controls.h"
+#include "oak_ffc_camera_imu/imu_correction.h"
 #include "rclcpp_components/register_node_macro.hpp"
 
 namespace oak_ffc_camera_imu {
@@ -69,7 +70,16 @@ void OakFfcCameraImuComponent::startDevice() {
   image_publisher_->start();
 
   auto imu_queue = device_->getOutputQueue("imu", config_.imu_queue_size, false);
-  imu_publisher_ = std::make_unique<ImuPublisher>(*this, imu_queue, "imu", config_.tf_prefix + "_imu_frame");
+  auto imu_correction = ImuCorrection::loadFromYaml(config_.imu_config_path);
+  if (imu_correction.enabled()) {
+    RCLCPP_INFO(get_logger(), "Using IMU correction config: %s", config_.imu_config_path.c_str());
+  }
+  imu_publisher_ = std::make_unique<ImuPublisher>(
+      *this,
+      imu_queue,
+      "imu",
+      config_.tf_prefix + "_imu_frame",
+      imu_correction);
   imu_publisher_->start();
 }
 
@@ -116,6 +126,8 @@ rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersC
         updated.compressed = parameter.as_bool();
       } else if (name == "oak_fw_uri") {
         updated.oak_fw_uri = parameter.as_string();
+      } else if (name == "imu_config_path") {
+        updated.imu_config_path = parameter.as_string();
       } else if (name == "imu_hz") {
         updated.imu_hz = static_cast<int>(parameter.as_int());
       } else if (name == "cam_board_sockets") {
