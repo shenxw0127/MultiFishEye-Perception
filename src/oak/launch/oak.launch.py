@@ -29,7 +29,7 @@ def generate_launch_description():
         DeclareLaunchArgument("manual_exposure_us", default_value="1000"),
         DeclareLaunchArgument("manual_iso", default_value="800"),
         DeclareLaunchArgument("exposure_compensation", default_value="0"),
-        DeclareLaunchArgument("manual_wb_kelvin", default_value="5000"),
+        DeclareLaunchArgument("manual_wb_kelvin", default_value="3500"),
         DeclareLaunchArgument("brightness", default_value="0"),
         DeclareLaunchArgument("contrast", default_value="0"),
         DeclareLaunchArgument("saturation", default_value="0"),

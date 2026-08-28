@@ -20,6 +20,7 @@ set(component_sources
   src/oak_ffc_camera_imu/image_publisher.cpp
   src/oak_ffc_camera_imu/imu_correction.cpp
   src/oak_ffc_camera_imu/imu_publisher.cpp
+  src/oak_ffc_camera_imu/mono_image_converter_component.cpp
   src/oak_ffc_camera_imu/pipeline_builder.cpp
 )
 
@@ -35,6 +36,7 @@ target_link_libraries(oak_ffc_camera_imu_component
 rclcpp_components_register_nodes(
   oak_ffc_camera_imu_component
   "oak_ffc_camera_imu::OakFfcCameraImuComponent"
+  "oak_ffc_camera_imu::MonoImageConverterComponent"
 )
 
 ament_auto_add_executable(oak_ffc_sync src/main.cpp)

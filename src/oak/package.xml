@@ -16,6 +16,7 @@
   <depend>depthai</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
+  <depend>OpenCV</depend>
   <depend>yaml-cpp</depend>
 
   <export>

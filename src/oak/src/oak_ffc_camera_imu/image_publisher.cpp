@@ -3,6 +3,8 @@
 #include <chrono>
 #include <stdexcept>
 
+#include "sensor_msgs/image_encodings.hpp"
+
 namespace oak_ffc_camera_imu {
 
 SyncedImagePublisher::SyncedImagePublisher(
@@ -95,13 +97,25 @@ sensor_msgs::msg::Image SyncedImagePublisher::toImageMsg(
   msg.header.frame_id = frameId(camera_name);
   msg.width = frame->getWidth();
   msg.height = frame->getHeight();
+  msg.is_bigendian = false;
 
   const auto& data = frame->getData();
   const auto pixel_count = static_cast<std::size_t>(msg.width) * static_cast<std::size_t>(msg.height);
-  const bool is_mono = pixel_count == data.size();
-  msg.encoding = is_mono ? "mono8" : "bgr8";
-  msg.is_bigendian = false;
-  msg.step = msg.width * (is_mono ? 1 : 3);
+  if (data.size() == pixel_count) {
+    msg.encoding = sensor_msgs::image_encodings::MONO8;
+    msg.step = msg.width;
+  } else if (data.size() == pixel_count * 3 / 2) {
+    msg.encoding = sensor_msgs::image_encodings::NV12;
+    msg.step = msg.width;
+  } else if (data.size() == pixel_count * 3) {
+    msg.encoding = sensor_msgs::image_encodings::BGR8;
+    msg.step = msg.width * 3;
+  } else if (data.size() == pixel_count * 4) {
+    msg.encoding = sensor_msgs::image_encodings::BGRA8;
+    msg.step = msg.width * 4;
+  } else {
+    throw std::runtime_error("unsupported OAK image buffer size from DepthAI");
+  }
   msg.data = data;
   return msg;
 }
