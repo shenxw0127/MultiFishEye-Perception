@@ -53,7 +53,13 @@
 #include <Eigen/Eigen>
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/filesystem.hpp>
+#if defined(OV_ROS_DISTRO_HUMBLE)
+#include <cv_bridge/cv_bridge.h>
+#elif defined(OV_ROS_DISTRO_LYRICAL)
 #include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.hpp>
+#endif
 
 namespace ov_core {
 class YamlParser;

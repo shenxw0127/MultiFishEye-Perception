@@ -38,6 +38,14 @@ if (NOT ENABLE_ROS)
 endif ()
 add_definitions(-DROS_AVAILABLE=2)
 
+# ROS2 distro compatibility.
+string(TOLOWER "$ENV{ROS_DISTRO}" OV_ROS_DISTRO)
+if (OV_ROS_DISTRO STREQUAL "humble")
+    add_definitions(-DOV_ROS_DISTRO_HUMBLE)
+elseif (OV_ROS_DISTRO STREQUAL "lyrical")
+    add_definitions(-DOV_ROS_DISTRO_LYRICAL)
+endif ()
+
 # Include our header files
 include_directories(
         src
