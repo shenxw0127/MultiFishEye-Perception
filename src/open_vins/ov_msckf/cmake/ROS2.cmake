@@ -42,6 +42,8 @@ add_definitions(-DROS_AVAILABLE=2)
 string(TOLOWER "$ENV{ROS_DISTRO}" OV_ROS_DISTRO)
 if (OV_ROS_DISTRO STREQUAL "humble")
     add_definitions(-DOV_ROS_DISTRO_HUMBLE)
+elseif (OV_ROS_DISTRO STREQUAL "lyrical")
+    add_definitions(-DOV_ROS_DISTRO_LYRICAL)
 endif ()
 
 # Include our header files

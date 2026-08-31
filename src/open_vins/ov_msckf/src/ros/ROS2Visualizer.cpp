@@ -191,6 +191,9 @@ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> pars
         _node, cam_topic0, rclcpp::SensorDataQoS().get_rmw_qos_profile());
     auto image_sub1 = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(
         _node, cam_topic1, rclcpp::SensorDataQoS().get_rmw_qos_profile());
+#elif defined(OV_ROS_DISTRO_LYRICAL)
+    auto image_sub0 = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(_node, cam_topic0, rclcpp::SensorDataQoS());
+    auto image_sub1 = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(_node, cam_topic1, rclcpp::SensorDataQoS());
 #else
     auto image_sub0 = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(_node, cam_topic0, rclcpp::SensorDataQoS());
     auto image_sub1 = std::make_shared<message_filters::Subscriber<sensor_msgs::msg::Image>>(_node, cam_topic1, rclcpp::SensorDataQoS());
