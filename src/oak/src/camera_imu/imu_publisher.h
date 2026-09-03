@@ -6,7 +6,7 @@
 #include <thread>
 
 #include "depthai/depthai.hpp"
-#include "oak_ffc_camera_imu/imu_correction.h"
+#include "camera_imu/imu_correction.h"
 #include "rclcpp/node.hpp"
 #include "sensor_msgs/msg/imu.hpp"
 

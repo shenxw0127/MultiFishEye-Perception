@@ -1,10 +1,10 @@
-#include "oak_ffc_camera_imu/component.h"
+#include "camera_imu/component.h"
 
 #include <cstdlib>
 #include <stdexcept>
 
-#include "oak_ffc_camera_imu/camera_controls.h"
-#include "oak_ffc_camera_imu/imu_correction.h"
+#include "camera_imu/camera_controls.h"
+#include "camera_imu/imu_correction.h"
 #include "rclcpp_components/register_node_macro.hpp"
 
 namespace oak_ffc_camera_imu {

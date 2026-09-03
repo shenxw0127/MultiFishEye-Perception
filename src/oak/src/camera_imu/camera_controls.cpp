@@ -1,4 +1,4 @@
-#include "oak_ffc_camera_imu/camera_controls.h"
+#include "camera_imu/camera_controls.h"
 
 #include <set>
 

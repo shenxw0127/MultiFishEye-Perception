@@ -1,4 +1,4 @@
-#include "oak_ffc_camera_imu/config.h"
+#include "camera_imu/config.h"
 
 #include <algorithm>
 #include <sstream>

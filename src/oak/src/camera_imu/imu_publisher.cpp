@@ -1,4 +1,4 @@
-#include "oak_ffc_camera_imu/imu_publisher.h"
+#include "camera_imu/imu_publisher.h"
 
 #include <chrono>
 

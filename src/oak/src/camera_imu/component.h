@@ -5,10 +5,10 @@
 #include <string>
 
 #include "depthai/depthai.hpp"
-#include "oak_ffc_camera_imu/config.h"
-#include "oak_ffc_camera_imu/image_publisher.h"
-#include "oak_ffc_camera_imu/imu_publisher.h"
-#include "oak_ffc_camera_imu/pipeline_builder.h"
+#include "camera_imu/config.h"
+#include "camera_imu/image_publisher.h"
+#include "camera_imu/imu_publisher.h"
+#include "camera_imu/pipeline_builder.h"
 #include "rclcpp/node.hpp"
 #include "rclcpp/node_options.hpp"
 

@@ -1,4 +1,4 @@
-#include "oak_ffc_camera_imu/mono_image_converter_component.h"
+#include "mono_converter/mono_image_converter_component.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -9,6 +9,9 @@
 
 namespace oak_ffc_camera_imu {
 namespace {
+
+constexpr const char* kEncodingNv12 = "nv12";
+constexpr const char* kEncodingNv21 = "nv21";
 
 bool hasValidStorage(const sensor_msgs::msg::Image& msg) {
   return msg.height > 0 && msg.width > 0 && msg.step > 0 &&
@@ -57,7 +60,7 @@ void MonoImageConverterComponent::callback(const sensor_msgs::msg::Image::ConstS
       return;
     }
 
-    if ((msg->encoding == sensor_msgs::image_encodings::NV12 || msg->encoding == sensor_msgs::image_encodings::NV21) &&
+    if ((msg->encoding == kEncodingNv12 || msg->encoding == kEncodingNv21) &&
         msg->data.size() >= static_cast<std::size_t>(msg->width) * msg->height) {
       const auto pixel_count = static_cast<std::size_t>(msg->width) * msg->height;
       out.data.assign(msg->data.begin(), msg->data.begin() + static_cast<std::ptrdiff_t>(pixel_count));

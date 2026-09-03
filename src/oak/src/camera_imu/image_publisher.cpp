@@ -1,4 +1,4 @@
-#include "oak_ffc_camera_imu/image_publisher.h"
+#include "camera_imu/image_publisher.h"
 
 #include <chrono>
 #include <stdexcept>
@@ -6,6 +6,11 @@
 #include "sensor_msgs/image_encodings.hpp"
 
 namespace oak_ffc_camera_imu {
+namespace {
+
+constexpr const char* kEncodingNv12 = "nv12";
+
+}  // namespace
 
 SyncedImagePublisher::SyncedImagePublisher(
     rclcpp::Node& node,
@@ -105,7 +110,7 @@ sensor_msgs::msg::Image SyncedImagePublisher::toImageMsg(
     msg.encoding = sensor_msgs::image_encodings::MONO8;
     msg.step = msg.width;
   } else if (data.size() == pixel_count * 3 / 2) {
-    msg.encoding = sensor_msgs::image_encodings::NV12;
+    msg.encoding = kEncodingNv12;
     msg.step = msg.width;
   } else if (data.size() == pixel_count * 3) {
     msg.encoding = sensor_msgs::image_encodings::BGR8;

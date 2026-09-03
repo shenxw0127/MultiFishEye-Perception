@@ -3,7 +3,7 @@
 #include <string>
 
 #include "depthai/depthai.hpp"
-#include "oak_ffc_camera_imu/config.h"
+#include "camera_imu/config.h"
 
 namespace oak_ffc_camera_imu {
 

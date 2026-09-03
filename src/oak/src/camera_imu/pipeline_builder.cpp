@@ -1,8 +1,8 @@
-#include "oak_ffc_camera_imu/pipeline_builder.h"
+#include "camera_imu/pipeline_builder.h"
 
 #include <chrono>
 
-#include "oak_ffc_camera_imu/camera_controls.h"
+#include "camera_imu/camera_controls.h"
 
 namespace oak_ffc_camera_imu {
 namespace {
@@ -89,7 +89,14 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       if (config.compressed) {
         camera->video.link(video_encoder->input);
       } else {
-        camera->isp.link(sync->inputs[board_socket_name]);
+        // raw 模式：preview 输出交错 BGR (BGR888i)，避免 ISP 的 YUV420p 平面歧义。
+        // 下游 cv_bridge::toCvShare 可真正零拷贝，且 foxglove/rosbag 原生支持 bgr8。
+        // 颜色空间转换由 OAK VPU 硬件完成，主机端零 CPU 开销。
+        camera->setColorOrder(dai::ColorCameraProperties::ColorOrder::BGR);
+        camera->setInterleaved(true);
+        camera->setPreviewSize(resolution.width, resolution.height);
+        camera->setPreviewKeepAspectRatio(false);  // 铺满，1:1 匹配标定分辨率
+        camera->preview.link(sync->inputs[board_socket_name]);
       }
 
       camera->initialControl.setFrameSyncMode(
