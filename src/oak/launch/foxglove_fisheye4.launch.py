@@ -22,7 +22,7 @@ def generate_launch_description():
         DeclareLaunchArgument("imu_config_path", default_value=os.path.join(pkg_dir, "config", "imu.yaml")),
         DeclareLaunchArgument("imu_hz", default_value="200"),
         DeclareLaunchArgument("cam_board_sockets", default_value="[CAM_A, CAM_B, CAM_C, CAM_D]"),
-        DeclareLaunchArgument("sync_threshold_ms", default_value="50"),
+        DeclareLaunchArgument("sync_threshold_ms", default_value="30"),
         DeclareLaunchArgument("image_queue_size", default_value="1"),
         DeclareLaunchArgument("imu_queue_size", default_value="50"),
         DeclareLaunchArgument("manual_exposure_us", default_value="1000"),

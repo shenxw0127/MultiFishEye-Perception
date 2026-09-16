@@ -67,4 +67,9 @@ rclcpp_components_register_nodes(
   "oak_ffc_camera_imu::FisheyeUndistortComponent"
 )
 
+install(PROGRAMS
+  scripts/calibrate_imu.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_auto_package(INSTALL_TO_SHARE launch config)

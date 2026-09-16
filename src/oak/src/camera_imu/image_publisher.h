@@ -7,6 +7,7 @@
 #include <thread>
 
 #include "depthai/depthai.hpp"
+#include "camera_imu/dai_time.h"
 #include "rclcpp/node.hpp"
 #include "sensor_msgs/msg/compressed_image.hpp"
 #include "sensor_msgs/msg/image.hpp"
@@ -21,7 +22,8 @@ class SyncedImagePublisher {
       std::map<std::string, std::string> topics,
       std::string frame_id_prefix,
       bool compressed,
-      bool lazy_publisher);
+      bool lazy_publisher,
+      std::shared_ptr<DaiTimeConverter> time_converter);
   ~SyncedImagePublisher();
 
   SyncedImagePublisher(const SyncedImagePublisher&) = delete;
@@ -45,6 +47,7 @@ class SyncedImagePublisher {
   std::string frame_id_prefix_;
   bool compressed_;
   bool lazy_publisher_;
+  std::shared_ptr<DaiTimeConverter> time_converter_;
   std::atomic_bool running_{false};
   std::thread thread_;
   std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;

@@ -53,6 +53,7 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("compressed", defaults.compressed);
   node.declare_parameter("oak_fw_uri", defaults.oak_fw_uri);
   node.declare_parameter("imu_config_path", defaults.imu_config_path);
+  node.declare_parameter("imu_correction_enabled", defaults.imu_correction_enabled);
   node.declare_parameter("imu_hz", defaults.imu_hz);
   node.declare_parameter("cam_board_sockets", defaults.cam_board_sockets);
   node.declare_parameter("sync_threshold_ms", defaults.sync_threshold_ms);
@@ -82,6 +83,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.compressed = node.get_parameter("compressed").as_bool();
   config.oak_fw_uri = node.get_parameter("oak_fw_uri").as_string();
   config.imu_config_path = node.get_parameter("imu_config_path").as_string();
+  config.imu_correction_enabled = node.get_parameter("imu_correction_enabled").as_bool();
   config.imu_hz = static_cast<int>(node.get_parameter("imu_hz").as_int());
   config.cam_board_sockets = parseSocketList(node.get_parameter("cam_board_sockets"));
   config.sync_threshold_ms = static_cast<int>(node.get_parameter("sync_threshold_ms").as_int());

@@ -18,13 +18,15 @@ SyncedImagePublisher::SyncedImagePublisher(
     std::map<std::string, std::string> topics,
     std::string frame_id_prefix,
     bool compressed,
-    bool lazy_publisher)
+    bool lazy_publisher,
+    std::shared_ptr<DaiTimeConverter> time_converter)
     : node_(node),
       queue_(std::move(queue)),
       topics_(std::move(topics)),
       frame_id_prefix_(std::move(frame_id_prefix)),
       compressed_(compressed),
-      lazy_publisher_(lazy_publisher) {
+      lazy_publisher_(lazy_publisher),
+      time_converter_(std::move(time_converter)) {
   rclcpp::QoS qos(rclcpp::KeepLast(3));
   qos.best_effort();
 
@@ -98,7 +100,8 @@ sensor_msgs::msg::Image SyncedImagePublisher::toImageMsg(
     const std::string& camera_name,
     const std::shared_ptr<dai::ImgFrame>& frame) const {
   sensor_msgs::msg::Image msg;
-  msg.header.stamp = node_.now();
+  // DepthAI hardware timestamp, shared time base with the IMU stream.
+  msg.header.stamp = time_converter_->toRosTime(frame->getTimestamp(), node_.get_clock());
   msg.header.frame_id = frameId(camera_name);
   msg.width = frame->getWidth();
   msg.height = frame->getHeight();
@@ -129,7 +132,8 @@ sensor_msgs::msg::CompressedImage SyncedImagePublisher::toCompressedImageMsg(
     const std::string& camera_name,
     const std::shared_ptr<dai::ImgFrame>& frame) const {
   sensor_msgs::msg::CompressedImage msg;
-  msg.header.stamp = node_.now();
+  // DepthAI hardware timestamp, shared time base with the IMU stream.
+  msg.header.stamp = time_converter_->toRosTime(frame->getTimestamp(), node_.get_clock());
   msg.header.frame_id = frameId(camera_name);
   msg.format = "jpeg";
   msg.data = frame->getData();

@@ -6,6 +6,7 @@
 
 #include "depthai/depthai.hpp"
 #include "camera_imu/config.h"
+#include "camera_imu/dai_time.h"
 #include "camera_imu/image_publisher.h"
 #include "camera_imu/imu_publisher.h"
 #include "camera_imu/pipeline_builder.h"
@@ -28,6 +29,7 @@ class OakFfcCameraImuComponent : public rclcpp::Node {
   DriverConfig config_;
   PipelineBundle pipeline_bundle_;
   std::unique_ptr<dai::Device> device_;
+  std::shared_ptr<DaiTimeConverter> time_converter_;
   std::unique_ptr<SyncedImagePublisher> image_publisher_;
   std::unique_ptr<ImuPublisher> imu_publisher_;
   std::map<std::string, std::shared_ptr<dai::DataInputQueue>> camera_control_queues_;

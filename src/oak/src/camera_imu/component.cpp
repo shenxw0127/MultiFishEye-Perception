@@ -59,6 +59,9 @@ void OakFfcCameraImuComponent::startDevice() {
   device_ = std::make_unique<dai::Device>(pipeline_bundle_.pipeline);
   openCameraControlQueues();
 
+  // Shared DepthAI->ROS time base so image and IMU streams are aligned.
+  time_converter_ = std::make_shared<DaiTimeConverter>();
+
   auto sync_queue = device_->getOutputQueue("sync", config_.image_queue_size, false);
   image_publisher_ = std::make_unique<SyncedImagePublisher>(
       *this,
@@ -66,20 +69,26 @@ void OakFfcCameraImuComponent::startDevice() {
       pipeline_bundle_.image_topics,
       config_.tf_prefix,
       config_.compressed,
-      config_.lazy_publisher);
+      config_.lazy_publisher,
+      time_converter_);
   image_publisher_->start();
 
   auto imu_queue = device_->getOutputQueue("imu", config_.imu_queue_size, false);
-  auto imu_correction = ImuCorrection::loadFromYaml(config_.imu_config_path);
+  auto imu_correction = config_.imu_correction_enabled
+                            ? ImuCorrection::loadFromYaml(config_.imu_config_path)
+                            : ImuCorrection::identity();
   if (imu_correction.enabled()) {
     RCLCPP_INFO(get_logger(), "Using IMU correction config: %s", config_.imu_config_path.c_str());
+  } else {
+    RCLCPP_INFO(get_logger(), "IMU correction disabled; publishing raw IMU data.");
   }
   imu_publisher_ = std::make_unique<ImuPublisher>(
       *this,
       imu_queue,
       "imu",
       config_.tf_prefix + "_imu_frame",
-      imu_correction);
+      imu_correction,
+      time_converter_);
   imu_publisher_->start();
 }
 
@@ -128,6 +137,8 @@ rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersC
         updated.oak_fw_uri = parameter.as_string();
       } else if (name == "imu_config_path") {
         updated.imu_config_path = parameter.as_string();
+      } else if (name == "imu_correction_enabled") {
+        updated.imu_correction_enabled = parameter.as_bool();
       } else if (name == "imu_hz") {
         updated.imu_hz = static_cast<int>(parameter.as_int());
       } else if (name == "cam_board_sockets") {

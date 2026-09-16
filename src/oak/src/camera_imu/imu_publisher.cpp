@@ -9,8 +9,13 @@ ImuPublisher::ImuPublisher(
     std::shared_ptr<dai::DataOutputQueue> queue,
     std::string topic,
     std::string frame_id,
-    ImuCorrection correction)
-    : node_(node), queue_(std::move(queue)), frame_id_(std::move(frame_id)), correction_(std::move(correction)) {
+    ImuCorrection correction,
+    std::shared_ptr<DaiTimeConverter> time_converter)
+    : node_(node),
+      queue_(std::move(queue)),
+      frame_id_(std::move(frame_id)),
+      correction_(std::move(correction)),
+      time_converter_(std::move(time_converter)) {
   rclcpp::QoS qos(rclcpp::KeepLast(50));
   qos.best_effort();
   publisher_ = node_.create_publisher<sensor_msgs::msg::Imu>(std::move(topic), qos);
@@ -50,7 +55,11 @@ void ImuPublisher::run() {
 
 sensor_msgs::msg::Imu ImuPublisher::toRosMsg(const dai::IMUPacket& packet) const {
   sensor_msgs::msg::Imu msg;
-  msg.header.stamp = node_.now();
+  // Use the DepthAI hardware timestamp (device clock) rather than the host
+  // receive time. IMU packets arrive from the device in batches, so stamping
+  // with node_.now() collapses many samples onto near-identical times and
+  // breaks the monotonic dt that OpenVINS' propagator requires.
+  msg.header.stamp = time_converter_->toRosTime(packet.acceleroMeter.getTimestamp(), node_.get_clock());
   msg.header.frame_id = frame_id_;
 
   msg.orientation.w = packet.rotationVector.real;

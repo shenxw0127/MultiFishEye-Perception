@@ -6,6 +6,7 @@
 #include <thread>
 
 #include "depthai/depthai.hpp"
+#include "camera_imu/dai_time.h"
 #include "camera_imu/imu_correction.h"
 #include "rclcpp/node.hpp"
 #include "sensor_msgs/msg/imu.hpp"
@@ -19,7 +20,8 @@ class ImuPublisher {
       std::shared_ptr<dai::DataOutputQueue> queue,
       std::string topic,
       std::string frame_id,
-      ImuCorrection correction);
+      ImuCorrection correction,
+      std::shared_ptr<DaiTimeConverter> time_converter);
   ~ImuPublisher();
 
   ImuPublisher(const ImuPublisher&) = delete;
@@ -36,6 +38,7 @@ class ImuPublisher {
   std::shared_ptr<dai::DataOutputQueue> queue_;
   std::string frame_id_;
   ImuCorrection correction_;
+  std::shared_ptr<DaiTimeConverter> time_converter_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
   std::atomic_bool running_{false};
   std::thread thread_;
