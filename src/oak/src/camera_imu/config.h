@@ -27,6 +27,12 @@ struct ResolutionConfig {
   dai::node::MonoCamera::Properties::SensorResolution mono_resolution;
   bool supports_color = false;
   bool supports_mono = false;
+  // 色彩路径专用：ISP 硬件缩放比例，套在 color_resolution 之上。depthai 的
+  // ColorCamera 没有 400p 这档 sensor 分辨率，只能取 800p 再由 ISP 缩一半，
+  // 这样裁的是像素不是视场，鱼眼 FOV 保持不变。1/1 表示不缩放。
+  // MonoCamera 没有 ISP 缩放，原生就有 400p，因此这两个字段对 mono 无效。
+  int isp_scale_num = 1;
+  int isp_scale_den = 1;
 };
 
 struct DriverConfig {
@@ -48,6 +54,10 @@ struct DriverConfig {
   int manual_exposure_us = 0;
   int manual_iso = 0;
   int exposure_compensation = 0;
+  // Caps the exposure time the firmware auto-exposure may pick, so it has to
+  // raise ISO instead of lengthening exposure. Only used when auto exposure is
+  // active (manual_exposure_us or manual_iso left at 0). 0 disables the cap.
+  int auto_exposure_limit_us = 0;
   int manual_wb_kelvin = 0;
   int brightness = 0;
   int contrast = 0;

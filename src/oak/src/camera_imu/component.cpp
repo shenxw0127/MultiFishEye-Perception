@@ -45,12 +45,17 @@ void OakFfcCameraImuComponent::startDevice() {
       config_.fps,
       config_.imu_hz,
       config_.compressed ? "true" : "false");
-  if (config_.manual_exposure_us > 0) {
+  if (config_.manual_exposure_us > 0 && config_.manual_iso > 0) {
     RCLCPP_INFO(
         get_logger(),
         "Using manual camera exposure: exposure=%dus iso=%d",
         config_.manual_exposure_us,
         config_.manual_iso);
+  } else if (config_.auto_exposure_limit_us > 0) {
+    RCLCPP_INFO(
+        get_logger(),
+        "Using auto exposure capped at %dus; gain is left to auto.",
+        config_.auto_exposure_limit_us);
   }
   if (config_.manual_wb_kelvin > 0) {
     RCLCPP_INFO(get_logger(), "Using manual white balance: %dK", config_.manual_wb_kelvin);
@@ -157,6 +162,8 @@ rcl_interfaces::msg::SetParametersResult OakFfcCameraImuComponent::onParametersC
         updated.manual_iso = static_cast<int>(parameter.as_int());
       } else if (name == "exposure_compensation") {
         updated.exposure_compensation = static_cast<int>(parameter.as_int());
+      } else if (name == "auto_exposure_limit_us") {
+        updated.auto_exposure_limit_us = static_cast<int>(parameter.as_int());
       } else if (name == "manual_wb_kelvin") {
         updated.manual_wb_kelvin = static_cast<int>(parameter.as_int());
       } else if (name == "brightness") {

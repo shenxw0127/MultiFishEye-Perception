@@ -33,7 +33,8 @@ const std::map<std::string, ResolutionConfig>& resolutionOptions() {
   using MonoResolution = dai::node::MonoCamera::Properties::SensorResolution;
 
   static const std::map<std::string, ResolutionConfig> options = {
-      {"400p", {640, 400, ColorResolution::THE_720_P, MonoResolution::THE_400_P, false, true}},
+      // 400p 在 color 下是 800p sensor + ISP 1/2 缩放（1280x800 -> 640x400），保 FOV。
+      {"400p", {640, 400, ColorResolution::THE_800_P, MonoResolution::THE_400_P, true, true, 1, 2}},
       {"480p", {640, 480, ColorResolution::THE_720_P, MonoResolution::THE_480_P, false, true}},
       {"720p", {1280, 720, ColorResolution::THE_720_P, MonoResolution::THE_720_P, true, true}},
       {"800p", {1280, 800, ColorResolution::THE_800_P, MonoResolution::THE_800_P, true, true}},
@@ -63,6 +64,7 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("manual_exposure_us", defaults.manual_exposure_us);
   node.declare_parameter("manual_iso", defaults.manual_iso);
   node.declare_parameter("exposure_compensation", defaults.exposure_compensation);
+  node.declare_parameter("auto_exposure_limit_us", defaults.auto_exposure_limit_us);
   node.declare_parameter("manual_wb_kelvin", defaults.manual_wb_kelvin);
   node.declare_parameter("brightness", defaults.brightness);
   node.declare_parameter("contrast", defaults.contrast);
@@ -93,6 +95,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.manual_exposure_us = static_cast<int>(node.get_parameter("manual_exposure_us").as_int());
   config.manual_iso = static_cast<int>(node.get_parameter("manual_iso").as_int());
   config.exposure_compensation = static_cast<int>(node.get_parameter("exposure_compensation").as_int());
+  config.auto_exposure_limit_us = static_cast<int>(node.get_parameter("auto_exposure_limit_us").as_int());
   config.manual_wb_kelvin = static_cast<int>(node.get_parameter("manual_wb_kelvin").as_int());
   config.brightness = static_cast<int>(node.get_parameter("brightness").as_int());
   config.contrast = static_cast<int>(node.get_parameter("contrast").as_int());
@@ -129,6 +132,10 @@ void validateConfig(const DriverConfig& config) {
   }
   if (config.exposure_compensation < -9 || config.exposure_compensation > 9) {
     throw std::runtime_error("exposure_compensation must be within -9..9");
+  }
+  if (config.auto_exposure_limit_us != 0 &&
+      (config.auto_exposure_limit_us < 100 || config.auto_exposure_limit_us > 100000)) {
+    throw std::runtime_error("auto_exposure_limit_us must be 0 or within 100..100000");
   }
   if (config.manual_wb_kelvin != 0 &&
       (config.manual_wb_kelvin < 1000 || config.manual_wb_kelvin > 12000)) {

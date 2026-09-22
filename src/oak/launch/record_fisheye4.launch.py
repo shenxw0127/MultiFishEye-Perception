@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import datetime
 
 from ament_index_python.packages import get_package_share_directory
@@ -7,6 +8,10 @@ from launch.actions import DeclareLaunchArgument, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode, ParameterValue
+
+# 相机 ISP 参数集中在同目录的 oak_camera_params.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from oak_camera_params import camera_launch_args, camera_parameters  # noqa: E402
 
 
 def unique_bag_uri(base):
@@ -32,7 +37,7 @@ def generate_launch_description():
         DeclareLaunchArgument("tf_prefix", default_value="oak"),
         DeclareLaunchArgument("camera_name", default_value="ov9782"),
         DeclareLaunchArgument("camera_type", default_value="color"),
-        DeclareLaunchArgument("resolution", default_value="800p"),
+        DeclareLaunchArgument("resolution", default_value="400p"),
         DeclareLaunchArgument("fps", default_value="30"),
         DeclareLaunchArgument("oak_fw_uri", default_value=""),
         DeclareLaunchArgument("imu_config_path", default_value=os.path.join(pkg_dir, "config", "imu.yaml")),
@@ -44,17 +49,7 @@ def generate_launch_description():
         DeclareLaunchArgument("sync_threshold_ms", default_value="30"),
         DeclareLaunchArgument("image_queue_size", default_value="1"),
         DeclareLaunchArgument("imu_queue_size", default_value="50"),
-        DeclareLaunchArgument("manual_exposure_us", default_value="2000"),
-        DeclareLaunchArgument("manual_iso", default_value="100"),
-        DeclareLaunchArgument("exposure_compensation", default_value="0"),
-        DeclareLaunchArgument("manual_wb_kelvin", default_value="5000"),
-        DeclareLaunchArgument("brightness", default_value="0"),
-        DeclareLaunchArgument("contrast", default_value="0"),
-        DeclareLaunchArgument("saturation", default_value="0"),
-        DeclareLaunchArgument("sharpness", default_value="1"),
-        DeclareLaunchArgument("luma_denoise", default_value="1"),
-        DeclareLaunchArgument("chroma_denoise", default_value="1"),
-        DeclareLaunchArgument("manual_focus", default_value="-1"),
+        *camera_launch_args(),
         # 录制相关参数
         DeclareLaunchArgument("bag_uri", default_value=default_bag_uri),
         DeclareLaunchArgument("storage_id", default_value="mcap"),
@@ -66,10 +61,10 @@ def generate_launch_description():
     #   IMU  -> /imu                    (sensor_msgs/Imu)
     record_topics = [
         "/imu",
-        "/CAM_A/image/compressed",
-        "/CAM_B/image/compressed",
-        "/CAM_C/image/compressed",
-        "/CAM_D/image/compressed",
+        "/CAM_A/image",
+        "/CAM_B/image",
+        "/CAM_C/image",
+        "/CAM_D/image",
     ]
 
     def launch_setup(context, *_args, **_kwargs):
@@ -102,7 +97,7 @@ def generate_launch_description():
                         {"oak_fw_uri": LaunchConfiguration("oak_fw_uri")},
                         {"imu_config_path": LaunchConfiguration("imu_config_path")},
                         {"imu_correction_enabled": LaunchConfiguration("imu_correction_enabled")},
-                        {"compressed": True},
+                        {"compressed": False},
                         {"imu_hz": LaunchConfiguration("imu_hz")},
                         {"cam_board_sockets": LaunchConfiguration("cam_board_sockets")},
                         {"sync_threshold_ms": LaunchConfiguration("sync_threshold_ms")},
@@ -110,17 +105,7 @@ def generate_launch_description():
                         {"imu_queue_size": LaunchConfiguration("imu_queue_size")},
                         # 录制时必须实时产生消息，关闭懒发布
                         {"lazy_publisher": False},
-                        {"manual_exposure_us": LaunchConfiguration("manual_exposure_us")},
-                        {"manual_iso": LaunchConfiguration("manual_iso")},
-                        {"exposure_compensation": LaunchConfiguration("exposure_compensation")},
-                        {"manual_wb_kelvin": LaunchConfiguration("manual_wb_kelvin")},
-                        {"brightness": LaunchConfiguration("brightness")},
-                        {"contrast": LaunchConfiguration("contrast")},
-                        {"saturation": LaunchConfiguration("saturation")},
-                        {"sharpness": LaunchConfiguration("sharpness")},
-                        {"luma_denoise": LaunchConfiguration("luma_denoise")},
-                        {"chroma_denoise": LaunchConfiguration("chroma_denoise")},
-                        {"manual_focus": LaunchConfiguration("manual_focus")},
+                        *camera_parameters(),
                     ],
                     extra_arguments=[{"use_intra_process_comms": True}],
                 ),

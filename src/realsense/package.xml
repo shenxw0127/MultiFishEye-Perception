@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>realsense_ros2</name>
+  <version>1.0.0</version>
+  <description>
+    RealSense D435i launch 包：30Hz 实时发布彩色点云 (XYZRGB) + RGB 图像，
+    并附带全局快门的左红外图。相机节点复用官方 realsense2_camera 组件，
+    本包只提供 launch 与参数。
+  </description>
+
+  <maintainer email="shenxuewen0127@gmail.com">shenxw</maintainer>
+
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- 只在运行期依赖：本包不编译任何 C++ 目标，相机节点用官方组件。 -->
+  <exec_depend>realsense2_camera</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
+  <!-- recorder.launch.py 在同容器里启动 rosbag2 录制组件与 foxglove 桥；
+       d435i.launch.py 的 foxglove:=true 也依赖后者 -->
+  <exec_depend>rosbag2_transport</exec_depend>
+  <exec_depend>foxglove_bridge</exec_depend>
+  <!-- launch 里用 get_package_share_directory 定位 config/fastdds_large_data.xml -->
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

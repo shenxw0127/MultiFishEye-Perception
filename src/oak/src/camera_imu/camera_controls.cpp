@@ -17,6 +17,9 @@ void applyCameraControls(dai::CameraControl& control, const DriverConfig& config
         static_cast<uint32_t>(config.manual_iso));
   } else {
     control.setAutoExposureEnable();
+    if (config.auto_exposure_limit_us > 0) {
+      control.setAutoExposureLimit(static_cast<uint32_t>(config.auto_exposure_limit_us));
+    }
     if (config.exposure_compensation != 0) {
       control.setAutoExposureCompensation(config.exposure_compensation);
     }
@@ -45,6 +48,7 @@ bool isCameraControlParameter(const std::string& name) {
       "manual_exposure_us",
       "manual_iso",
       "exposure_compensation",
+      "auto_exposure_limit_us",
       "manual_wb_kelvin",
       "brightness",
       "contrast",

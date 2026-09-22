@@ -1,4 +1,5 @@
 import os
+import sys
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -6,6 +7,10 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, Node
 from launch_ros.descriptions import ComposableNode
+
+# 相机 ISP 参数集中在同目录的 oak_camera_params.py
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from oak_camera_params import camera_launch_args, camera_parameters  # noqa: E402
 
 
 # Mono diagnostic launch: single camera (CAM_A) + IMU + OpenVINS.
@@ -42,17 +47,7 @@ def generate_launch_description():
         DeclareLaunchArgument("sync_threshold_ms", default_value="30"),
         DeclareLaunchArgument("image_queue_size", default_value="1"),
         DeclareLaunchArgument("imu_queue_size", default_value="50"),
-        DeclareLaunchArgument("manual_exposure_us", default_value="1000"),
-        DeclareLaunchArgument("manual_iso", default_value="800"),
-        DeclareLaunchArgument("exposure_compensation", default_value="0"),
-        DeclareLaunchArgument("manual_wb_kelvin", default_value="5000"),
-        DeclareLaunchArgument("brightness", default_value="0"),
-        DeclareLaunchArgument("contrast", default_value="0"),
-        DeclareLaunchArgument("saturation", default_value="0"),
-        DeclareLaunchArgument("sharpness", default_value="1"),
-        DeclareLaunchArgument("luma_denoise", default_value="1"),
-        DeclareLaunchArgument("chroma_denoise", default_value="1"),
-        DeclareLaunchArgument("manual_focus", default_value="-1"),
+        *camera_launch_args(),
         DeclareLaunchArgument("config_path", default_value=default_config),
         DeclareLaunchArgument("save_total_state", default_value="false"),
         DeclareLaunchArgument("filepath_est", default_value="/tmp/openvins_mono/openvins_estimate.txt"),
@@ -87,17 +82,7 @@ def generate_launch_description():
                     {"image_queue_size": LaunchConfiguration("image_queue_size")},
                     {"imu_queue_size": LaunchConfiguration("imu_queue_size")},
                     {"lazy_publisher": False},
-                    {"manual_exposure_us": LaunchConfiguration("manual_exposure_us")},
-                    {"manual_iso": LaunchConfiguration("manual_iso")},
-                    {"exposure_compensation": LaunchConfiguration("exposure_compensation")},
-                    {"manual_wb_kelvin": LaunchConfiguration("manual_wb_kelvin")},
-                    {"brightness": LaunchConfiguration("brightness")},
-                    {"contrast": LaunchConfiguration("contrast")},
-                    {"saturation": LaunchConfiguration("saturation")},
-                    {"sharpness": LaunchConfiguration("sharpness")},
-                    {"luma_denoise": LaunchConfiguration("luma_denoise")},
-                    {"chroma_denoise": LaunchConfiguration("chroma_denoise")},
-                    {"manual_focus": LaunchConfiguration("manual_focus")},
+                    *camera_parameters(),
                 ],
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),

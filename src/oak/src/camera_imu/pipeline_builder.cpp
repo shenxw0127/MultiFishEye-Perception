@@ -80,6 +80,10 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       auto camera = bundle.pipeline.create<dai::node::ColorCamera>();
       camera->setBoardSocket(socket_config.socket);
       camera->setResolution(resolution.color_resolution);
+      if (resolution.isp_scale_num != resolution.isp_scale_den) {
+        // ISP 硬件缩放，VPU 上完成，主机端零开销，且按像素缩放不裁视场。
+        camera->setIspScale(resolution.isp_scale_num, resolution.isp_scale_den);
+      }
       camera->setFps(config.fps);
       camera->inputControl.setBlocking(false);
       camera->inputControl.setQueueSize(4);
@@ -87,6 +91,8 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       control_in->out.link(camera->inputControl);
 
       if (config.compressed) {
+        // compressed 走 video 流，显式钉死输出尺寸，保证和 bundle.width/height 一致。
+        camera->setVideoSize(resolution.width, resolution.height);
         camera->video.link(video_encoder->input);
       } else {
         // raw 模式：preview 输出交错 BGR (BGR888i)，避免 ISP 的 YUV420p 平面歧义。
