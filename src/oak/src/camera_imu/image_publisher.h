@@ -18,7 +18,6 @@ class SyncedImagePublisher {
  public:
   SyncedImagePublisher(
       rclcpp::Node& node,
-      std::shared_ptr<dai::DataOutputQueue> queue,
       std::map<std::string, std::string> topics,
       std::string frame_id_prefix,
       bool compressed,
@@ -29,8 +28,12 @@ class SyncedImagePublisher {
   SyncedImagePublisher(const SyncedImagePublisher&) = delete;
   SyncedImagePublisher& operator=(const SyncedImagePublisher&) = delete;
 
-  void start();
-  void stop();
+  // 挂到一个新连上的设备队列并起读线程；ROS publisher 在构造时建好，重连不重建。
+  void attach(std::shared_ptr<dai::DataOutputQueue> queue);
+  // 停读线程并释放队列，可重复调用。
+  void detach();
+  // 读线程因设备异常（断连）退出后变为 false，由 supervisor 轮询。
+  bool healthy() const { return healthy_; }
 
  private:
   void run();
@@ -49,6 +52,7 @@ class SyncedImagePublisher {
   bool lazy_publisher_;
   std::shared_ptr<DaiTimeConverter> time_converter_;
   std::atomic_bool running_{false};
+  std::atomic_bool healthy_{false};
   std::thread thread_;
   std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::Image>::SharedPtr> image_publishers_;
   std::map<std::string, rclcpp::Publisher<sensor_msgs::msg::CompressedImage>::SharedPtr> compressed_publishers_;

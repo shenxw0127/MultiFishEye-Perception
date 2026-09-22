@@ -6,13 +6,11 @@ namespace oak_ffc_camera_imu {
 
 ImuPublisher::ImuPublisher(
     rclcpp::Node& node,
-    std::shared_ptr<dai::DataOutputQueue> queue,
     std::string topic,
     std::string frame_id,
     ImuCorrection correction,
     std::shared_ptr<DaiTimeConverter> time_converter)
     : node_(node),
-      queue_(std::move(queue)),
       frame_id_(std::move(frame_id)),
       correction_(std::move(correction)),
       time_converter_(std::move(time_converter)) {
@@ -22,34 +20,43 @@ ImuPublisher::ImuPublisher(
 }
 
 ImuPublisher::~ImuPublisher() {
-  stop();
+  detach();
 }
 
-void ImuPublisher::start() {
-  if (running_.exchange(true)) {
-    return;
-  }
+void ImuPublisher::attach(std::shared_ptr<dai::DataOutputQueue> queue) {
+  detach();
+  queue_ = std::move(queue);
+  healthy_ = true;
+  running_ = true;
   thread_ = std::thread(&ImuPublisher::run, this);
 }
 
-void ImuPublisher::stop() {
+void ImuPublisher::detach() {
   running_ = false;
   if (thread_.joinable()) {
     thread_.join();
   }
+  queue_.reset();
+  healthy_ = false;
 }
 
 void ImuPublisher::run() {
-  while (rclcpp::ok() && running_) {
-    auto data = queue_->tryGet<dai::IMUData>();
-    if (!data) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
-    }
+  // 断连异常在线程内消化，见 SyncedImagePublisher::run。
+  try {
+    while (rclcpp::ok() && running_) {
+      auto data = queue_->tryGet<dai::IMUData>();
+      if (!data) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
 
-    for (const auto& packet : data->packets) {
-      publisher_->publish(toRosMsg(packet));
+      for (const auto& packet : data->packets) {
+        publisher_->publish(toRosMsg(packet));
+      }
     }
+  } catch (const std::exception& error) {
+    RCLCPP_WARN(node_.get_logger(), "IMU stream stopped: %s", error.what());
+    healthy_ = false;
   }
 }
 

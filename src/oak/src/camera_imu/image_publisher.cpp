@@ -14,14 +14,12 @@ constexpr const char* kEncodingNv12 = "nv12";
 
 SyncedImagePublisher::SyncedImagePublisher(
     rclcpp::Node& node,
-    std::shared_ptr<dai::DataOutputQueue> queue,
     std::map<std::string, std::string> topics,
     std::string frame_id_prefix,
     bool compressed,
     bool lazy_publisher,
     std::shared_ptr<DaiTimeConverter> time_converter)
     : node_(node),
-      queue_(std::move(queue)),
       topics_(std::move(topics)),
       frame_id_prefix_(std::move(frame_id_prefix)),
       compressed_(compressed),
@@ -41,31 +39,41 @@ SyncedImagePublisher::SyncedImagePublisher(
 }
 
 SyncedImagePublisher::~SyncedImagePublisher() {
-  stop();
+  detach();
 }
 
-void SyncedImagePublisher::start() {
-  if (running_.exchange(true)) {
-    return;
-  }
+void SyncedImagePublisher::attach(std::shared_ptr<dai::DataOutputQueue> queue) {
+  detach();
+  queue_ = std::move(queue);
+  healthy_ = true;
+  running_ = true;
   thread_ = std::thread(&SyncedImagePublisher::run, this);
 }
 
-void SyncedImagePublisher::stop() {
+void SyncedImagePublisher::detach() {
   running_ = false;
   if (thread_.joinable()) {
     thread_.join();
   }
+  queue_.reset();
+  healthy_ = false;
 }
 
 void SyncedImagePublisher::run() {
-  while (rclcpp::ok() && running_) {
-    auto group = queue_->tryGet<dai::MessageGroup>();
-    if (!group) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      continue;
+  // 设备断连时 DataOutputQueue 会抛 std::runtime_error。这里吞掉并标记 unhealthy，
+  // 交给 supervisor 重连；绝不能让异常逃出线程，否则 std::terminate 会带走整个 container。
+  try {
+    while (rclcpp::ok() && running_) {
+      auto group = queue_->tryGet<dai::MessageGroup>();
+      if (!group) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      publishGroup(group);
     }
-    publishGroup(group);
+  } catch (const std::exception& error) {
+    RCLCPP_WARN(node_.get_logger(), "Image stream stopped: %s", error.what());
+    healthy_ = false;
   }
 }
 

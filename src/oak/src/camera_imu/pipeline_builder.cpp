@@ -133,10 +133,10 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       applyCameraControls(camera->initialControl, config);
     }
 
-    bundle.image_topics[board_socket_name] =
-        socket_config.image_topic + (config.compressed ? "/compressed" : "");
     bundle.control_streams[board_socket_name] = control_stream;
   }
+
+  bundle.image_topics = imageTopics(config);
 
   auto imu = bundle.pipeline.create<dai::node::IMU>();
   auto x_imu_out = bundle.pipeline.create<dai::node::XLinkOut>();
@@ -160,6 +160,15 @@ PipelineBundle createPipeline(const DriverConfig& config) {
   }
 
   return bundle;
+}
+
+std::map<std::string, std::string> imageTopics(const DriverConfig& config) {
+  std::map<std::string, std::string> topics;
+  for (const auto& board_socket_name : config.cam_board_sockets) {
+    topics[board_socket_name] =
+        cameraSocketOptions().at(board_socket_name).image_topic + (config.compressed ? "/compressed" : "");
+  }
+  return topics;
 }
 
 }  // namespace oak_ffc_camera_imu

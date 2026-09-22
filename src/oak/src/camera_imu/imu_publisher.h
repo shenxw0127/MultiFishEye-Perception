@@ -17,7 +17,6 @@ class ImuPublisher {
  public:
   ImuPublisher(
       rclcpp::Node& node,
-      std::shared_ptr<dai::DataOutputQueue> queue,
       std::string topic,
       std::string frame_id,
       ImuCorrection correction,
@@ -27,8 +26,10 @@ class ImuPublisher {
   ImuPublisher(const ImuPublisher&) = delete;
   ImuPublisher& operator=(const ImuPublisher&) = delete;
 
-  void start();
-  void stop();
+  // 同 SyncedImagePublisher：attach 挂新设备队列，detach 停线程，healthy 反映断连。
+  void attach(std::shared_ptr<dai::DataOutputQueue> queue);
+  void detach();
+  bool healthy() const { return healthy_; }
 
  private:
   void run();
@@ -41,6 +42,7 @@ class ImuPublisher {
   std::shared_ptr<DaiTimeConverter> time_converter_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
   std::atomic_bool running_{false};
+  std::atomic_bool healthy_{false};
   std::thread thread_;
 };
 

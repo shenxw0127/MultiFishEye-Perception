@@ -51,6 +51,8 @@ struct DriverConfig {
   int image_queue_size = 1;
   int imu_queue_size = 50;
   bool lazy_publisher = true;
+  // 设备不在或断连后，两次重连尝试之间的间隔。
+  int reconnect_interval_ms = 1000;
   int manual_exposure_us = 0;
   int manual_iso = 0;
   int exposure_compensation = 0;

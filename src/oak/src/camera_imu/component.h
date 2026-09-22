@@ -1,8 +1,12 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "depthai/depthai.hpp"
 #include "camera_imu/config.h"
@@ -15,24 +19,42 @@
 
 namespace oak_ffc_camera_imu {
 
+// 设备生命周期由 supervisor 线程独占：连接 -> 监视 -> 断连后清理 -> 按间隔重试。
+// ROS publisher 在构造时一次建好并跨重连复用，订阅方无需感知热插拔。
 class OakFfcCameraImuComponent : public rclcpp::Node {
  public:
   explicit OakFfcCameraImuComponent(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
   ~OakFfcCameraImuComponent() override;
 
  private:
-  void startDevice();
-  void openCameraControlQueues();
+  void superviseDevice();
+  void connectDevice();
+  void disconnectDevice();
+  bool deviceHealthy() const;
+  // 可被析构提前唤醒的 sleep，返回 false 表示该退出了。
+  bool waitFor(std::chrono::milliseconds duration);
   void sendCameraControls(const DriverConfig& config);
   rcl_interfaces::msg::SetParametersResult onParametersChanged(const std::vector<rclcpp::Parameter>& parameters);
 
+  // config_ 启动后只会改 camera control 字段（见 onParametersChanged），
+  // 重连时用它重建 pipeline，因此断连期间改的曝光等参数在重连后自动生效。
+  mutable std::mutex config_mutex_;
   DriverConfig config_;
-  PipelineBundle pipeline_bundle_;
-  std::unique_ptr<dai::Device> device_;
+
   std::shared_ptr<DaiTimeConverter> time_converter_;
   std::unique_ptr<SyncedImagePublisher> image_publisher_;
   std::unique_ptr<ImuPublisher> imu_publisher_;
+
+  // 仅 supervisor 线程读写 device_；control queue 另受 control_mutex_ 保护，因为参数回调在 executor 线程发控制。
+  std::unique_ptr<dai::Device> device_;
+  std::mutex control_mutex_;
   std::map<std::string, std::shared_ptr<dai::DataInputQueue>> camera_control_queues_;
+
+  std::atomic_bool running_{true};
+  std::mutex wake_mutex_;
+  std::condition_variable wake_cv_;
+  std::thread supervisor_thread_;
+
   OnSetParametersCallbackHandle::SharedPtr parameter_callback_handle_;
 };
 

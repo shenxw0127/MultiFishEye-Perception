@@ -1,0 +1,6 @@
+# 录制指定时长的 rosbag（4 路 JPEG 压缩图像 + IMU）。录制中再次调用会被拒绝。
+float64 duration_s  # 录制时长（秒），需在 (0, max_duration_s] 内
+---
+bool success
+string message
+string bag_path     # 成功时为 bag 目录绝对路径

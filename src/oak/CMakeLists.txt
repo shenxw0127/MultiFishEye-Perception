@@ -67,6 +67,19 @@ rclcpp_components_register_nodes(
   "oak_ffc_camera_imu::FisheyeUndistortComponent"
 )
 
+# --- recorder component: 服务触发的定时 rosbag 录制（主机线程 JPEG 压缩）---
+ament_auto_add_library(recorder_component SHARED
+  src/recorder/bag_recorder_component.cpp
+)
+target_include_directories(recorder_component
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+)
+rclcpp_components_register_nodes(
+  recorder_component
+  "oak_ffc_camera_imu::BagRecorderComponent"
+)
+
 install(PROGRAMS
   scripts/calibrate_imu.py
   DESTINATION lib/${PROJECT_NAME}

@@ -61,6 +61,7 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("image_queue_size", defaults.image_queue_size);
   node.declare_parameter("imu_queue_size", defaults.imu_queue_size);
   node.declare_parameter("lazy_publisher", defaults.lazy_publisher);
+  node.declare_parameter("reconnect_interval_ms", defaults.reconnect_interval_ms);
   node.declare_parameter("manual_exposure_us", defaults.manual_exposure_us);
   node.declare_parameter("manual_iso", defaults.manual_iso);
   node.declare_parameter("exposure_compensation", defaults.exposure_compensation);
@@ -92,6 +93,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.image_queue_size = static_cast<int>(node.get_parameter("image_queue_size").as_int());
   config.imu_queue_size = static_cast<int>(node.get_parameter("imu_queue_size").as_int());
   config.lazy_publisher = node.get_parameter("lazy_publisher").as_bool();
+  config.reconnect_interval_ms = static_cast<int>(node.get_parameter("reconnect_interval_ms").as_int());
   config.manual_exposure_us = static_cast<int>(node.get_parameter("manual_exposure_us").as_int());
   config.manual_iso = static_cast<int>(node.get_parameter("manual_iso").as_int());
   config.exposure_compensation = static_cast<int>(node.get_parameter("exposure_compensation").as_int());
@@ -123,6 +125,9 @@ void validateConfig(const DriverConfig& config) {
   }
   if (config.image_queue_size <= 0 || config.imu_queue_size <= 0) {
     throw std::runtime_error("queue sizes must be greater than zero");
+  }
+  if (config.reconnect_interval_ms < 100) {
+    throw std::runtime_error("reconnect_interval_ms must be at least 100");
   }
   if (config.manual_exposure_us < 0) {
     throw std::runtime_error("manual_exposure_us must be non-negative");
