@@ -1,26 +1,38 @@
 <?xml version="1.0"?>
 <package format="3">
   <name>realsense_ros2</name>
-  <version>1.0.0</version>
+  <version>1.1.0</version>
   <description>
     RealSense D435i launch 包：30Hz 实时发布彩色点云 (XYZRGB) + RGB 图像，
-    并附带全局快门的左红外图。相机节点复用官方 realsense2_camera 组件，
-    本包只提供 launch 与参数。
+    并附带全局快门的左红外图；以及服务触发的定时录制（RGB / 深度 / 左右红外 / IMU / 外参）。
+    相机节点复用官方 realsense2_camera 组件，本包只编译录制组件。
   </description>
 
   <maintainer email="shenxuewen0127@gmail.com">shenxw</maintainer>
 
   <license>MIT</license>
 
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_auto</buildtool_depend>
 
-  <!-- 只在运行期依赖：本包不编译任何 C++ 目标，相机节点用官方组件。 -->
+  <!-- 录制组件（src/recorder）：Record 服务复用 oak_interfaces -->
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>rosbag2_cpp</depend>
+  <depend>rosbag2_storage</depend>
+  <depend>oak_interfaces</depend>
+
+  <!-- 相机节点用官方组件；录制的 extrinsics / tf_static 类型在写 bag schema 时需要 -->
   <exec_depend>realsense2_camera</exec_depend>
-  <exec_depend>rclcpp_components</exec_depend>
-  <!-- recorder.launch.py 在同容器里启动 rosbag2 录制组件与 foxglove 桥；
-       d435i.launch.py 的 foxglove:=true 也依赖后者 -->
-  <exec_depend>rosbag2_transport</exec_depend>
+  <exec_depend>realsense2_camera_msgs</exec_depend>
+  <exec_depend>tf2_msgs</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <!-- recorder.launch.py 与 d435i.launch.py 的 foxglove:=true 都依赖 foxglove 桥 -->
   <exec_depend>foxglove_bridge</exec_depend>
+  <!-- mcap 存储插件 -->
+  <exec_depend>rosbag2_storage_mcap</exec_depend>
+  <!-- record_all.launch.py：include oak.launch.py，record_all.py 协调节点用 rclpy -->
+  <exec_depend>oak_ros2</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <!-- launch 里用 get_package_share_directory 定位 config/fastdds_large_data.xml -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>

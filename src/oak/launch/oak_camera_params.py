@@ -82,6 +82,8 @@ RECORDER_DEFAULTS = {
     "jpeg_threads": "2",
     "max_queue": "60",
     "max_duration_s": "600.0",
+    # 图像写盘频率：相机仍按 fps（30）采集，录制只按绝对时间格每 1/record_hz 秒留一组；0 = 全留
+    "record_hz": "4.0",
 }
 
 

@@ -40,6 +40,7 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   const auto jpeg_threads = declare_parameter<int64_t>("jpeg_threads", 2);
   const auto max_queue = declare_parameter<int64_t>("max_queue", 60);
   max_duration_s_ = declare_parameter<double>("max_duration_s", 600.0);
+  const auto record_hz = declare_parameter<double>("record_hz", 4.0);
   cam_board_sockets_ = declare_parameter<std::vector<std::string>>(
       "cam_board_sockets", std::vector<std::string>{"CAM_A", "CAM_B", "CAM_C", "CAM_D"});
   imu_topic_ = declare_parameter<std::string>("imu_topic", "/imu");
@@ -56,6 +57,10 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   if (max_duration_s_ <= 0.0) {
     throw std::runtime_error("max_duration_s must be greater than zero");
   }
+  if (record_hz < 0.0) {
+    throw std::runtime_error("record_hz must be >= 0 (0 = keep every frame)");
+  }
+  record_period_ns_ = record_hz > 0.0 ? static_cast<int64_t>(1e9 / record_hz) : 0;
   if (cam_board_sockets_.empty()) {
     throw std::runtime_error("cam_board_sockets must contain at least one camera socket");
   }
@@ -71,9 +76,10 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
 
   RCLCPP_INFO(
       get_logger(),
-      "Bag recorder ready: service=/oak/record bag_root=%s storage=%s jpeg_quality=%d jpeg_threads=%ld",
+      "Bag recorder ready: service=/oak/record bag_root=%s storage=%s record_hz=%.2f jpeg_quality=%d jpeg_threads=%ld",
       bag_root_.c_str(),
       storage_id_.c_str(),
+      record_hz,
       jpeg_quality_,
       static_cast<long>(jpeg_threads));
 }
@@ -112,7 +118,7 @@ void BagRecorderComponent::onRecordRequest(
   }
 
   try {
-    const auto bag_path = nextBagPath();
+    const auto bag_path = request->bag_name.empty() ? nextBagPath() : namedBagPath(request->bag_name);
     startRecording(bag_path, request->duration_s);
     response->success = true;
     response->bag_path = bag_path;
@@ -121,6 +127,25 @@ void BagRecorderComponent::onRecordRequest(
     RCLCPP_ERROR(get_logger(), "Failed to start recording: %s", error.what());
     response->message = error.what();
   }
+}
+
+std::string BagRecorderComponent::namedBagPath(const std::string& bag_name) const {
+  const std::filesystem::path relative(bag_name);
+  if (relative.is_absolute()) {
+    throw std::runtime_error("bag_name must be relative to bag_root: " + bag_name);
+  }
+  for (const auto& part : relative) {
+    if (part == "..") {
+      throw std::runtime_error("bag_name must not contain '..': " + bag_name);
+    }
+  }
+  const auto path = std::filesystem::path(bag_root_) / relative;
+  // rosbag2 要求 bag 目录本身不存在，父目录（如同一次联合录制的 session 目录）提前建好。
+  if (std::filesystem::exists(path)) {
+    throw std::runtime_error("bag already exists: " + path.string());
+  }
+  std::filesystem::create_directories(path.parent_path());
+  return path.string();
 }
 
 std::string BagRecorderComponent::nextBagPath() const {
@@ -158,12 +183,12 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
   images_written_ = 0;
   imu_written_ = 0;
   images_dropped_ = 0;
+  duplicates_skipped_ = 0;
+  last_stamp_ns_.clear();
+  last_bucket_.clear();
 
-  // 同进程里有不支持 intra-process 的订阅者（如 foxglove_bridge 的 generic subscription）时，
-  // 驱动会同时走 intra-process 和 DDS 发布；rclcpp 按 gid 去重对大图像消息失效，实测每帧录两份。
-  // 让 DDS 层丢掉本进程的样本：intra-process 投递不经过 rmw 不受影响，其他进程的发布照常接收。
-  rclcpp::SubscriptionOptions sub_options;
-  sub_options.ignore_local_publications = true;
+  // 不能用 ignore_local_publications 去重：intra-process 匹配不上的话题（实测 /imu）只剩
+  // DDS 这一路，会被整条丢掉，旧版录出 imu=0。重复统一在回调里按时间戳去掉（见头文件）。
 
   // QoS 与驱动发布端一致（best_effort），否则 intra-process 匹配不上。
   rclcpp::QoS image_qos(rclcpp::KeepLast(5));
@@ -175,18 +200,26 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
         input_topic,
         image_qos,
         [this, output_topic](sensor_msgs::msg::Image::ConstSharedPtr image) {
-          onImage(output_topic, std::move(image));
-        },
-        sub_options));
+          if (acceptStamp(output_topic, image->header.stamp, record_period_ns_)) {
+            onImage(output_topic, std::move(image));
+          }
+        }));
   }
 
+  // IMU 走 intra-process 实测收不到（旧版 imu=0），消息小，直接走 DDS。
+  rclcpp::SubscriptionOptions imu_sub_options;
+  imu_sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
   rclcpp::QoS imu_qos(rclcpp::KeepLast(200));
   imu_qos.best_effort();
   subscriptions_.push_back(create_subscription<sensor_msgs::msg::Imu>(
       imu_topic_,
       imu_qos,
-      [this](sensor_msgs::msg::Imu::ConstSharedPtr imu) { onImu(std::move(imu)); },
-      sub_options));
+      [this](sensor_msgs::msg::Imu::ConstSharedPtr imu) {
+        if (acceptStamp("/imu", imu->header.stamp, 0)) {
+          onImu(std::move(imu));
+        }
+      },
+      imu_sub_options));
 
   stop_timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(duration_s)),
@@ -223,11 +256,35 @@ void BagRecorderComponent::stopRecording() {
   recording_ = false;
   RCLCPP_INFO(
       get_logger(),
-      "\033[0;32mRecording finished: \033[0m%s (images=%lu imu=%lu dropped=%lu)",
+      "\033[0;32mRecording finished: \033[0m%s (images=%lu imu=%lu dropped=%lu duplicates_skipped=%lu)",
       bag_path_.c_str(),
       static_cast<unsigned long>(images_written_.load()),
       static_cast<unsigned long>(imu_written_.load()),
-      static_cast<unsigned long>(images_dropped_.load()));
+      static_cast<unsigned long>(images_dropped_.load()),
+      static_cast<unsigned long>(duplicates_skipped_));
+  if (imu_written_ == 0) {
+    RCLCPP_WARN(get_logger(), "No IMU samples recorded from %s", imu_topic_.c_str());
+  }
+}
+
+bool BagRecorderComponent::acceptStamp(
+    const std::string& topic, const builtin_interfaces::msg::Time& stamp, int64_t period_ns) {
+  const int64_t stamp_ns = rclcpp::Time(stamp).nanoseconds();
+  auto last = last_stamp_ns_.find(topic);
+  if (last != last_stamp_ns_.end() && stamp_ns <= last->second) {
+    ++duplicates_skipped_;
+    return false;
+  }
+  if (period_ns > 0) {
+    const int64_t bucket = stamp_ns / period_ns;
+    auto last_bucket = last_bucket_.find(topic);
+    if (last_bucket != last_bucket_.end() && bucket <= last_bucket->second) {
+      return false;
+    }
+    last_bucket_[topic] = bucket;
+  }
+  last_stamp_ns_[topic] = stamp_ns;
+  return true;
 }
 
 void BagRecorderComponent::onImage(const std::string& output_topic, sensor_msgs::msg::Image::ConstSharedPtr image) {

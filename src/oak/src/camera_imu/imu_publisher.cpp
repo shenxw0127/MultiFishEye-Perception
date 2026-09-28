@@ -3,6 +3,12 @@
 #include <chrono>
 
 namespace oak_ffc_camera_imu {
+namespace {
+
+// 正常连接后约 220ms 出第一包，3s 足够区分"慢"和"卡死"。
+constexpr auto kImuStallTimeout = std::chrono::seconds(3);
+
+}  // namespace
 
 ImuPublisher::ImuPublisher(
     rclcpp::Node& node,
@@ -42,13 +48,38 @@ void ImuPublisher::detach() {
 
 void ImuPublisher::run() {
   // 断连异常在线程内消化，见 SyncedImagePublisher::run。
+  //
+  // 看门狗：实测连接后 IMU 偶发完全不出数（图像正常）；设备刚被上一个进程关掉就重新连接时
+  // 几乎必现，重连一次后约 220ms 出第一包。旧版录制 imu=0 就是这个原因。
+  // attach 后或运行中超过 kImuStallTimeout 收不到包就标记 unhealthy，交给 supervisor
+  // 整机重连，和拔插走同一条恢复路径。
+  auto last_data = std::chrono::steady_clock::now();
+  bool first_packet = true;
   try {
     while (rclcpp::ok() && running_) {
       auto data = queue_->tryGet<dai::IMUData>();
       if (!data) {
+        if (std::chrono::steady_clock::now() - last_data > kImuStallTimeout) {
+          RCLCPP_WARN(
+              node_.get_logger(),
+              "No IMU data for %lds, forcing OAK reconnect",
+              static_cast<long>(std::chrono::duration_cast<std::chrono::seconds>(kImuStallTimeout).count()));
+          healthy_ = false;
+          return;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
         continue;
       }
+      if (first_packet) {
+        first_packet = false;
+        RCLCPP_INFO(
+            node_.get_logger(),
+            "First IMU packet %ld ms after attach",
+            static_cast<long>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_data)
+                    .count()));
+      }
+      last_data = std::chrono::steady_clock::now();
 
       for (const auto& packet : data->packets) {
         publisher_->publish(toRosMsg(packet));

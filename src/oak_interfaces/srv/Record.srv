@@ -1,5 +1,6 @@
-# 录制指定时长的 rosbag（4 路 JPEG 压缩图像 + IMU）。录制中再次调用会被拒绝。
+# 录制指定时长的 rosbag（oak：4 路 JPEG 图像 + IMU；realsense：按 realsense_params.py 的话题列表）。录制中再次调用会被拒绝。
 float64 duration_s  # 录制时长（秒），需在 (0, max_duration_s] 内
+string bag_name     # 可选：bag 目录相对 bag_root 的路径（如 session_xxx/oak），留空按 <bag_prefix>_<时间戳> 自动命名
 ---
 bool success
 string message
