@@ -7,10 +7,12 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "depthai/depthai.hpp"
 #include "camera_imu/config.h"
 #include "camera_imu/dai_time.h"
+#include "camera_imu/fps_display.h"
 #include "camera_imu/image_publisher.h"
 #include "camera_imu/imu_publisher.h"
 #include "camera_imu/pipeline_builder.h"
@@ -29,6 +31,9 @@ class OakFfcCameraImuComponent : public rclcpp::Node {
  private:
   void superviseDevice();
   void connectDevice();
+  // 探测本次连接实际出帧的插座（已与 cam_board_sockets 取交集）。会占用并关闭设备的一次启动，
+  // device_id 返回被探测设备的 MxId，供随后重开同一台。
+  std::vector<std::string> resolveStreamingSockets(const DriverConfig& config, std::string& device_id);
   void disconnectDevice();
   bool deviceHealthy() const;
   // 可被析构提前唤醒的 sleep，返回 false 表示该退出了。
@@ -44,6 +49,9 @@ class OakFfcCameraImuComponent : public rclcpp::Node {
   std::shared_ptr<DaiTimeConverter> time_converter_;
   std::unique_ptr<SyncedImagePublisher> image_publisher_;
   std::unique_ptr<ImuPublisher> imu_publisher_;
+  // fps_display 关闭或没有控制终端时都为空。
+  std::unique_ptr<FpsDisplay> fps_display_;
+  rclcpp::TimerBase::SharedPtr fps_display_timer_;
 
   // 仅 supervisor 线程读写 device_；control queue 另受 control_mutex_ 保护，因为参数回调在 executor 线程发控制。
   std::unique_ptr<dai::Device> device_;

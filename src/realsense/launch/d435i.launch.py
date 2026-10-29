@@ -11,10 +11,10 @@ RGB 模块是卷帘快门，这由硬件决定、SDK 无法切换。所以：
 container 里，方便把本项目其它组件加进同一进程做 intra-process 零拷贝。
 
 发布的主要话题（camera_name 默认 d435i）：
-  /d435i/color/image_raw              RGB8  640x480 @30Hz（卷帘）
+  /d435i/color/image_raw              RGB8  848x480 @30Hz（卷帘）
   /d435i/color/camera_info
   /d435i/depth/color/points           PointCloud2 XYZRGB @30Hz  <- 彩色点云
-  /d435i/infra1/image_rect_raw        mono8 640x480 @30Hz（全局快门）
+  /d435i/infra1/image_rect_raw        mono8 848x480 @30Hz（全局快门）
   /d435i/depth/image_rect_raw         Z16 深度图
   /d435i/aligned_depth_to_color/image_raw  对齐到彩色的深度图
 
@@ -24,15 +24,15 @@ container 里，方便把本项目其它组件加进同一进程做 intra-proces
 用法：
   ros2 launch realsense_ros2 d435i.launch.py
   ros2 launch realsense_ros2 d435i.launch.py foxglove:=true
-  ros2 launch realsense_ros2 d435i.launch.py width:=848 height:=480 enable_imu:=true
+  ros2 launch realsense_ros2 d435i.launch.py width:=640 height:=480 enable_imu:=true
 
 跑满 30Hz 的前提（DDS 传输，别删）：
 本 launch 会给相机进程设 FASTRTPS_DEFAULT_PROFILES_FILE 指向
 config/fastdds_large_data.xml。Fast DDS 默认共享内存段只有 512KB，而单帧
-color rgb8 是 922KB、depth Z16 是 614KB、点云最大 9.8MB，超出后退回 UDP 分片，
+color rgb8 是 1.2MB、depth Z16 是 814KB、点云最大 13MB（848x480），超出后退回 UDP 分片，
 又被内核 net.core.rmem_max(默认 208KB) 卡住大量丢片。实测默认配置下
 color 5.3Hz / depth 5.2Hz / 点云 4.2Hz，加载该 profile 后三者都是 29.98Hz
-（infra1 只有 307KB，没超，两种配置都是 30Hz）。详见该 xml 的头部注释。
+（infra1 只有 407KB，没超，两种配置都是 30Hz）。以上实测是 640x480，详见该 xml 的头部注释。
 
 注意 QoS：点云默认 SENSOR_DATA（best-effort）。`ros2 topic hz` 内部用的就是
 sensor_data QoS，可以直接测；但 `ros2 topic echo` 和 rviz2 默认 reliable，
@@ -78,7 +78,7 @@ LAUNCH_ARGS = [
     DeclareLaunchArgument("tf_prefix", default_value="",
                           description="所有 frame_id 的额外前缀"),
     # --- 流参数：30Hz 是硬要求，分辨率可调 ---
-    DeclareLaunchArgument("width", default_value="640"),
+    DeclareLaunchArgument("width", default_value="848"),  # Intel 给 D435 推荐的深度分辨率
     DeclareLaunchArgument("height", default_value="480"),
     DeclareLaunchArgument("fps", default_value="30"),
     # --- 可选流 ---
@@ -99,7 +99,7 @@ LAUNCH_ARGS = [
     DeclareLaunchArgument("info_qos", default_value="SYSTEM_DEFAULT",
                           description="camera_info 与 metadata 话题 QoS"),
     DeclareLaunchArgument("pointcloud_qos", default_value="SENSOR_DATA",
-                          description="点云话题 QoS；640x480 XYZRGB @30Hz 约 147MB/s，建议 best-effort"),
+                          description="点云话题 QoS；848x480 XYZRGB @30Hz 约 195MB/s，建议 best-effort"),
     DeclareLaunchArgument("diagnostics_period", default_value="0.0",
                           description=">0 则以该周期(秒)发布 /diagnostics，可看到各流实际帧率"),
     DeclareLaunchArgument("intra_process_comms", default_value="false",

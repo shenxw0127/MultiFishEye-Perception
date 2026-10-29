@@ -2,13 +2,15 @@
 <package format="3">
   <name>oak_interfaces</name>
   <version>1.0.0</version>
-  <description>Service definitions for the onboard OAK driver (triggered bag recording).</description>
+  <description>Service and message definitions for the onboard OAK driver (triggered bag recording, per-frame ISP metadata).</description>
 
   <maintainer email="null404bit@gmail.com">shenxw</maintainer>
   <license>MIT</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <depend>std_msgs</depend>
+  <depend>builtin_interfaces</depend>
   <exec_depend>rosidl_default_runtime</exec_depend>
   <member_of_group>rosidl_interface_packages</member_of_group>
 

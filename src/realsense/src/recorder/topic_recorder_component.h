@@ -19,6 +19,9 @@ namespace realsense_ros2 {
 // 由 launch/realsense_params.py 的 RECORD_TOPICS 生成），用 generic subscription 直接拿
 // 序列化数据写盘，不需要为每种消息类型编译代码，加话题只改 Python 列表。
 //
+// bag 的 log time（回放 / 合并时的时间轴）：带 header 的实时数据用 header.stamp（采集时刻，
+// 与 OAK 录制器相同），其余用接收时刻。stamp 缺失或与接收时刻相差过大时退回接收时刻。
+//
 // 只在录制期间订阅：realsense 驱动没有订阅者时不发布图像，平时不占带宽。
 // 相机中途被拔掉再插回时，驱动重新创建 publisher，订阅会自动重新匹配，录制不中断。
 class TopicRecorderComponent : public rclcpp::Node {
@@ -31,6 +34,9 @@ class TopicRecorderComponent : public rclcpp::Node {
     std::string name;
     std::string type;
     rclcpp::QoS qos;
+    // true：bag 的 log time 用消息 header.stamp（采集时刻），与 OAK 录制一致，两个 bag 才能直接按时间合并。
+    // false：用接收时刻（无 header 的消息，以及 latched 的静态数据）。
+    bool stamp_as_log_time = false;
   };
 
   void onRecordRequest(
@@ -38,6 +44,8 @@ class TopicRecorderComponent : public rclcpp::Node {
       std::shared_ptr<oak_interfaces::srv::Record::Response> response);
   void startRecording(const std::string& bag_path, double duration_s);
   void stopRecording();
+  // 开录后片刻检查：还没收到消息的话题，告警并列出图里同类型的话题（刚体名写错时一眼看出该填什么）。
+  void warnSilentTopics();
   void onMessage(
       const TopicSpec& spec,
       std::shared_ptr<const rclcpp::SerializedMessage> message,
@@ -58,6 +66,7 @@ class TopicRecorderComponent : public rclcpp::Node {
   bool recording_ = false;
   std::string bag_path_;
   rclcpp::TimerBase::SharedPtr stop_timer_;
+  rclcpp::TimerBase::SharedPtr check_timer_;
   std::vector<rclcpp::GenericSubscription::SharedPtr> subscriptions_;
 
   // 订阅回调与收尾可能不在同一线程（多线程 executor 时），writer 与计数统一加锁。

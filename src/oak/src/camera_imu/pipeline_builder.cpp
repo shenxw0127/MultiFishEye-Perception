@@ -1,6 +1,7 @@
 #include "camera_imu/pipeline_builder.h"
 
 #include <chrono>
+#include <stdexcept>
 
 #include "camera_imu/camera_controls.h"
 
@@ -47,13 +48,28 @@ while True:
 )");
 }
 
+bool usesSensorFsyncMaster(const DriverConfig& config) { return config.camera_name == "ov9782"; }
+
+// OV9782：首路 sensor 作 FSIN 主机输出脉冲，其余跟随。
+// AR0234 等其它 sensor：由 LEON_CSS 上的 fsyncScript 用 GPIO 打 FSIN 脉冲，所有 sensor
+// 都必须是 INPUT，否则首路 sensor 会和脚本同时驱动 FSIN 线（与厂商参考实现一致）。
+dai::CameraControl::FrameSyncMode frameSyncMode(const DriverConfig& config, const std::string& board_socket_name) {
+  if (usesSensorFsyncMaster(config) && board_socket_name == config.cam_board_sockets.front()) {
+    return dai::CameraControl::FrameSyncMode::OUTPUT;
+  }
+  return dai::CameraControl::FrameSyncMode::INPUT;
+}
+
 }  // namespace
 
 PipelineBundle createPipeline(const DriverConfig& config) {
+  if (isAutoDetect(config.cam_board_sockets)) {
+    throw std::logic_error("createPipeline needs resolved camera sockets, got ALL");
+  }
   PipelineBundle bundle;
   bundle.pipeline.setXLinkChunkSize(0);
 
-  const auto resolution = resolutionOptions().at(config.resolution);
+  const auto resolution = resolveResolution(config);
   bundle.width = resolution.width;
   bundle.height = resolution.height;
 
@@ -71,8 +87,10 @@ PipelineBundle createPipeline(const DriverConfig& config) {
     const auto control_stream = "control_" + board_socket_name;
     control_in->setStreamName(control_stream);
 
-    if (config.compressed) {
+    const bool encode = deviceEncodesMjpeg(config);
+    if (encode) {
       video_encoder->setDefaultProfilePreset(config.fps, dai::VideoEncoderProperties::Profile::MJPEG);
+      video_encoder->setQuality(config.jpeg_quality);
       video_encoder->bitstream.link(sync->inputs[board_socket_name]);
     }
 
@@ -90,7 +108,7 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       camera->inputControl.setWaitForMessage(false);
       control_in->out.link(camera->inputControl);
 
-      if (config.compressed) {
+      if (encode) {
         // compressed 走 video 流，显式钉死输出尺寸，保证和 bundle.width/height 一致。
         camera->setVideoSize(resolution.width, resolution.height);
         camera->video.link(video_encoder->input);
@@ -105,10 +123,7 @@ PipelineBundle createPipeline(const DriverConfig& config) {
         camera->preview.link(sync->inputs[board_socket_name]);
       }
 
-      camera->initialControl.setFrameSyncMode(
-          board_socket_name == config.cam_board_sockets.front()
-              ? dai::CameraControl::FrameSyncMode::OUTPUT
-              : dai::CameraControl::FrameSyncMode::INPUT);
+      camera->initialControl.setFrameSyncMode(frameSyncMode(config, board_socket_name));
       applyCameraControls(camera->initialControl, config);
     } else {
       auto camera = bundle.pipeline.create<dai::node::MonoCamera>();
@@ -120,16 +135,15 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       camera->inputControl.setWaitForMessage(false);
       control_in->out.link(camera->inputControl);
 
-      if (config.compressed) {
+      // MonoCamera 由厂商固件按 MONO 模式驱动 sensor，直接出 GRAY8（OV9782 这类彩色
+      // sensor 也一样由 ISP 出亮度），不经过彩色图，主机端也无需再转灰度。
+      if (encode) {
         camera->out.link(video_encoder->input);
       } else {
         camera->out.link(sync->inputs[board_socket_name]);
       }
 
-      camera->initialControl.setFrameSyncMode(
-          board_socket_name == config.cam_board_sockets.front()
-              ? dai::CameraControl::FrameSyncMode::OUTPUT
-              : dai::CameraControl::FrameSyncMode::INPUT);
+      camera->initialControl.setFrameSyncMode(frameSyncMode(config, board_socket_name));
       applyCameraControls(camera->initialControl, config);
     }
 
@@ -148,12 +162,8 @@ PipelineBundle createPipeline(const DriverConfig& config) {
   imu->setMaxBatchReports(10);
   imu->out.link(x_imu_out->input);
 
-  if (config.camera_name == "ov9782") {
-    auto board_config = dai::BoardConfig();
-    board_config.gpio[42] =
-        dai::BoardConfig::GPIO(dai::BoardConfig::GPIO::INPUT, dai::BoardConfig::GPIO::HIGH, dai::BoardConfig::GPIO::PULL_DOWN);
-    bundle.pipeline.setBoardConfig(board_config);
-  } else {
+  bundle.pipeline.setBoardConfig(deviceConfig(config).board);
+  if (!usesSensorFsyncMaster(config)) {
     auto script = bundle.pipeline.create<dai::node::Script>();
     script->setProcessor(dai::ProcessorType::LEON_CSS);
     script->setScript(fsyncScript(config.fps));
@@ -162,9 +172,18 @@ PipelineBundle createPipeline(const DriverConfig& config) {
   return bundle;
 }
 
+dai::Device::Config deviceConfig(const DriverConfig& config) {
+  dai::Device::Config device_config;
+  if (usesSensorFsyncMaster(config)) {
+    device_config.board.gpio[42] =
+        dai::BoardConfig::GPIO(dai::BoardConfig::GPIO::INPUT, dai::BoardConfig::GPIO::HIGH, dai::BoardConfig::GPIO::PULL_DOWN);
+  }
+  return device_config;
+}
+
 std::map<std::string, std::string> imageTopics(const DriverConfig& config) {
   std::map<std::string, std::string> topics;
-  for (const auto& board_socket_name : config.cam_board_sockets) {
+  for (const auto& board_socket_name : expandSockets(config.cam_board_sockets)) {
     topics[board_socket_name] =
         cameraSocketOptions().at(board_socket_name).image_topic + (config.compressed ? "/compressed" : "");
   }

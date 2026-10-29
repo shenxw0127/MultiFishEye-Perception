@@ -24,19 +24,26 @@ DRIVER_DEFAULTS = {
     "tf_prefix": "oak",
     "camera_name": "ov9782",
     "camera_type": "color",
-    "resolution": "800p",
+    "resolution": "400p",
     "fps": "30",
     "oak_fw_uri": "",
     "imu_config_path": os.path.join(get_package_share_directory("oak_ros2"), "config", "imu.yaml"),
     "imu_correction_enabled": "true",
     "compressed": "false",
+    "usb_speed": "super",
+    "xlink_mjpeg": "false",
+    "jpeg_quality": "95",
     "imu_hz": "200",
+    # ALL = 启动时自动检测插着的相机；也可写显式列表，如 "[CAM_A, CAM_B]"（没插的会被跳过并告警）。
+    # "cam_board_sockets": "ALL",
     "cam_board_sockets": "[CAM_A, CAM_B, CAM_C, CAM_D]",
+
     "sync_threshold_ms": "30",
     "image_queue_size": "1",
     "imu_queue_size": "50",
     "lazy_publisher": "true",
     "reconnect_interval_ms": "1000",
+    "fps_display": "true",
 }
 
 # ISP 参数（曝光、增益、白平衡等）。
@@ -66,8 +73,12 @@ DESCRIPTIONS = {
     "imu_correction_enabled": "apply accel bias/scale + gyro bias correction from imu_config_path "
     "(set false to publish raw IMU)",
     "compressed": "true 走 video 流 MJPEG 压缩；false 走 preview 输出 bgr8 原图",
+    "usb_speed": "super=允许 USB3；high=强制协商 USB2（避免 USB3 射频干扰 GNSS）",
+    "xlink_mjpeg": "设备端 MJPEG 过 XLink，主机解码回 mono8/bgr8；USB2 下 4 路 400p@30 必须开",
+    "jpeg_quality": "设备端 MJPEG 质量 1..100；95 时 4×400p mono 约 7.5 MB/s",
     "lazy_publisher": "无订阅者时不发布；录制/下游组件消费时应关闭",
     "reconnect_interval_ms": "相机不在或断连后的重连间隔",
+    "fps_display": "在启动终端单行刷新各路相机实际帧率（低于目标 95% 标红）；没有终端时自动关闭",
 }
 
 ALL_DEFAULTS = {**DRIVER_DEFAULTS, **CAMERA_DEFAULTS}
@@ -82,8 +93,9 @@ RECORDER_DEFAULTS = {
     "jpeg_threads": "2",
     "max_queue": "60",
     "max_duration_s": "600.0",
-    # 图像写盘频率：相机仍按 fps（30）采集，录制只按绝对时间格每 1/record_hz 秒留一组；0 = 全留
-    "record_hz": "4.0",
+    # 图像写盘频率。默认 999 = 满帧（任何 >= 相机 fps 的值都是全录）；标定时 record_hz:=4，
+    # 相机仍按 fps 采集，录制只按绝对时间格每 1/record_hz 秒留一组。
+    "record_hz": "999.0",
 }
 
 
@@ -127,4 +139,6 @@ def recorder_parameters():
     return [
         *({name: LaunchConfiguration(name)} for name in RECORDER_DEFAULTS),
         {"cam_board_sockets": LaunchConfiguration("cam_board_sockets")},
+        # 相机帧率与驱动共用 fps 参数，用来判断 record_hz 是否需要抽帧
+        {"camera_fps": LaunchConfiguration("fps")},
     ]

@@ -34,7 +34,7 @@ def generate_launch_description():
     launch_args = [
         *oak_launch_args(FIXED, resolution="400p"),
         *recorder_launch_args(),
-        DeclareLaunchArgument("foxglove", default_value="false"),
+        DeclareLaunchArgument("foxglove", default_value="true"),
         DeclareLaunchArgument("foxglove_port", default_value="8765"),
     ]
 

@@ -6,17 +6,17 @@
 录制（相机常驻运行，收到请求才开始录，到时自动收尾）：
     ros2 service call /d435i/record oak_interfaces/srv/Record "{duration_s: 30}"
 
-录哪些话题、相机参数都在同目录的 realsense_params.py 里改（RECORD_TOPICS）。默认录：
-    color/image_raw + camera_info             RGB8  640x480@30（卷帘）
-    depth/image_rect_raw + camera_info        16UC1 640x480@30（mm，坐标系 = 左红外）
-    infra1|infra2/image_rect_raw + camera_info mono8 640x480@30（全局快门，左 / 右）
-    imu                                       accel + gyro 插值合成（enable_imu:=false 时不录）
-    extrinsics/depth_to_{color,infra1,infra2} 工厂标定外参（旋转 + 平移），latched
-    /tf_static                                完整相机 TF 树，latched
+录哪些话题、相机参数都在同目录的 realsense_params.py 里改（RECORD_TOPICS）。默认录 RGB + 深度 + IMU：
+    color/image_raw + camera_info             RGB8  848x480@30（卷帘），camera_info 含内参
+    depth/image_rect_raw + camera_info        16UC1 848x480@30（mm，坐标系 = 左红外），camera_info 含内参
+    extrinsics/depth_to_color                 深度 -> RGB 工厂标定外参（旋转 + 平移），latched
+    imu                                       accel + gyro 插值合成约 200Hz（enable_imu:=false 时不录）
+    accel|gyro/imu_info                       IMU 内参（噪声方差、零偏），latched
+    extrinsics/depth_to_{accel,gyro}          深度 -> IMU 外参，latched（D435i 无出厂 IMU 标定，是型号默认值）
+左右红外、depth_to_infra*、/tf_static 在 RECORD_TOPICS 里注释着，需要时打开（红外另需 enable_infra:=true）。
 
-外参说明：depth 与 infra1 同一坐标系，所以 depth_to_color 就是左红外 -> RGB，
-depth_to_infra2 就是左 -> 右红外（平移约 50mm 基线）。驱动以深度流为基准算外参，
-因此深度流必须开着，这也是旧版（关深度、不录 /tf_static）bag 里缺外参的原因。
+外参说明：p_color = R · p_depth + t，rotation 为 column-major 3x3，translation 单位米。
+驱动以深度流为基准算外参，因此深度流必须开着。
 
 单容器三组件：
   1. realsense2_camera::RealSenseNodeFactory —— wait_for_device_timeout=-1：启动时没插相机就一直等；
@@ -29,7 +29,7 @@ depth_to_infra2 就是左 -> 右红外（平移约 50mm 基线）。驱动以深
 三个组件；Ctrl+C 正常退出不会触发。崩溃时正在录的 bag 来不及写 metadata，可用
 `ros2 bag reindex <bag>` 修复。
 
-磁盘量参考：RGB8 922KB + Z16 614KB + 两路 mono8 各 307KB，30Hz 合计约 64MB/s（约 230GB/h）。
+磁盘量参考：RGB8 1.2MB + Z16 814KB（848x480），30Hz 合计约 61MB/s（约 220GB/h）；打开两路红外再加 24MB/s。
 
 IMU 前置条件：D435i 的 IMU 走 HID/IIO（/sys/bus/iio/devices/iio:device*），默认只有 root
 可写，必须装 librealsense 的 udev 规则（config/99-realsense-libusb.rules，与 librealsense
@@ -45,11 +45,10 @@ import sys
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, RegisterEventHandler, TimerAction
-from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessStart
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer, LoadComposableNodes
-from launch_ros.descriptions import ComposableNode, ParameterValue
+from launch_ros.descriptions import ComposableNode
 
 # 相机与录制参数、录制话题集中在同目录的 realsense_params.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,13 +106,17 @@ def launch_setup(context, *args, **kwargs):
         parameters=[recorder_params],
     )
 
+    # foxglove / foxglove_port 必须在这里（launch_setup 内）就求值成普通值：组件是容器起来 2s 后
+    # 由 TimerAction 延迟加载的，那时 record_all.launch.py 用 scoped GroupAction include 本文件时设的
+    # 作用域早已弹出，延迟到加载时再 perform LaunchConfiguration 会报 "does not exist"。
+    foxglove_enabled = LaunchConfiguration("foxglove").perform(context).strip().lower() in ("1", "true", "yes", "on")
+    foxglove_port = int(LaunchConfiguration("foxglove_port").perform(context))
     foxglove_node = ComposableNode(
         package="foxglove_bridge",
         plugin="foxglove_bridge::FoxgloveBridge",
         name="foxglove_bridge",
-        condition=IfCondition(LaunchConfiguration("foxglove")),
         parameters=[{
-            "port": ParameterValue(LaunchConfiguration("foxglove_port"), value_type=int),
+            "port": foxglove_port,
             # 只服务本相机的话题，屏蔽网络上其它节点的话题，避免为未安装的消息包刷 schema 报错
             "topic_whitelist": [prefix + "/.*"],
             "service_whitelist": [""],
@@ -148,7 +151,8 @@ def launch_setup(context, *args, **kwargs):
             period=LOAD_DELAY_SEC,
             actions=[LoadComposableNodes(
                 target_container=CONTAINER_NAME,
-                composable_node_descriptions=[recorder_node, foxglove_node, realsense_node],
+                composable_node_descriptions=[
+                    recorder_node, *([foxglove_node] if foxglove_enabled else []), realsense_node],
             )],
         )]
 

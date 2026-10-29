@@ -17,11 +17,15 @@ find_package(yaml-cpp REQUIRED)
 set(camera_imu_sources
   src/camera_imu/component.cpp
   src/camera_imu/camera_controls.cpp
+  src/camera_imu/camera_probe.cpp
   src/camera_imu/config.cpp
+  src/camera_imu/fps_display.cpp
   src/camera_imu/image_publisher.cpp
   src/camera_imu/imu_correction.cpp
   src/camera_imu/imu_publisher.cpp
+  src/camera_imu/isp_meta.cpp
   src/camera_imu/pipeline_builder.cpp
+  src/camera_imu/socket_list.cpp
 )
 
 ament_auto_add_library(camera_imu_component SHARED ${camera_imu_sources})
@@ -70,6 +74,7 @@ rclcpp_components_register_nodes(
 # --- recorder component: 服务触发的定时 rosbag 录制（主机线程 JPEG 压缩）---
 ament_auto_add_library(recorder_component SHARED
   src/recorder/bag_recorder_component.cpp
+  src/camera_imu/socket_list.cpp
 )
 target_include_directories(recorder_component
   PUBLIC
@@ -84,5 +89,17 @@ install(PROGRAMS
   scripts/calibrate_imu.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  # 只测不依赖设备的纯转换逻辑：ImgFrame 元数据 -> IspMeta
+  ament_auto_add_gtest(test_isp_meta test/test_isp_meta.cpp src/camera_imu/isp_meta.cpp)
+  target_include_directories(test_isp_meta PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(test_isp_meta depthai::core ${oak_interfaces_TARGETS})
+  ament_auto_add_gtest(test_socket_list test/test_socket_list.cpp src/camera_imu/socket_list.cpp)
+  target_include_directories(test_socket_list PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  ament_auto_add_gtest(test_fps_display test/test_fps_display.cpp src/camera_imu/fps_display.cpp)
+  target_include_directories(test_fps_display PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+endif()
 
 ament_auto_package(INSTALL_TO_SHARE launch config)

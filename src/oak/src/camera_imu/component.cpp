@@ -1,9 +1,11 @@
 #include "camera_imu/component.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 
 #include "camera_imu/camera_controls.h"
+#include "camera_imu/camera_probe.h"
 #include "camera_imu/imu_correction.h"
 #include "rclcpp_components/register_node_macro.hpp"
 
@@ -11,6 +13,38 @@ namespace oak_ffc_camera_imu {
 namespace {
 
 constexpr auto kHealthPollInterval = std::chrono::milliseconds(200);
+// 探测 pipeline 等各路首帧的下限；实测 AR0234 首帧 < 1s。低帧率时至少等 10 个帧周期。
+constexpr auto kMinProbeTimeout = std::chrono::milliseconds(2000);
+constexpr int kProbeFramePeriods = 10;
+constexpr auto kFpsDisplayInterval = std::chrono::seconds(1);
+
+JpegDecode jpegDecodeMode(const DriverConfig& config) {
+  if (config.compressed || !config.xlink_mjpeg) {
+    return JpegDecode::None;
+  }
+  return config.camera_type == CameraType::Mono ? JpegDecode::Mono8 : JpegDecode::Bgr8;
+}
+
+const char* usbSpeedName(dai::UsbSpeed speed) {
+  switch (speed) {
+    case dai::UsbSpeed::HIGH:
+      return "USB2 HIGH (480M)";
+    case dai::UsbSpeed::SUPER:
+      return "USB3 SUPER (5G)";
+    case dai::UsbSpeed::SUPER_PLUS:
+      return "USB3 SUPER_PLUS (10G)";
+    default:
+      return "LOW/FULL/UNKNOWN";
+  }
+}
+
+std::string joinSockets(const std::vector<std::string>& sockets) {
+  std::string joined;
+  for (const auto& socket : sockets) {
+    joined += (joined.empty() ? "" : ", ") + socket;
+  }
+  return joined;
+}
 
 }  // namespace
 
@@ -29,13 +63,16 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
 
   RCLCPP_INFO(
       get_logger(),
-      "Starting OAK FFC camera/IMU component: camera=%s type=%s resolution=%s fps=%d imu_hz=%d compressed=%s",
+      "Starting OAK FFC camera/IMU component: camera=%s type=%s resolution=%s fps=%d imu_hz=%d compressed=%s "
+      "usb_speed=%s xlink_mjpeg=%s",
       config_.camera_name.c_str(),
       toString(config_.camera_type).c_str(),
       config_.resolution.c_str(),
       config_.fps,
       config_.imu_hz,
-      config_.compressed ? "true" : "false");
+      config_.compressed ? "true" : "false",
+      config_.usb_speed.c_str(),
+      config_.xlink_mjpeg ? "true" : "false");
   if (config_.manual_exposure_us > 0 && config_.manual_iso > 0) {
     RCLCPP_INFO(
         get_logger(),
@@ -63,6 +100,9 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
       config_.tf_prefix,
       config_.compressed,
       config_.lazy_publisher,
+      jpegDecodeMode(config_),
+      resolutionOptions().at(config_.resolution).width,
+      resolutionOptions().at(config_.resolution).height,
       time_converter_);
 
   auto imu_correction = config_.imu_correction_enabled
@@ -80,6 +120,19 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
       imu_correction,
       time_converter_);
 
+  if (config_.fps_display) {
+    fps_display_ = std::make_unique<FpsDisplay>(config_.tf_prefix, config_.fps, config_.imu_hz);
+    if (fps_display_->available()) {
+      // 在 executor 线程上跑：两个计数接口都线程安全，读线程每组帧 / 每批 IMU 只加一次计数。
+      fps_display_timer_ = create_wall_timer(kFpsDisplayInterval, [this] {
+        fps_display_->update(image_publisher_->frameCounts(), imu_publisher_->packetCount());
+      });
+    } else {
+      RCLCPP_INFO(get_logger(), "No controlling terminal, fps_display disabled.");
+      fps_display_.reset();
+    }
+  }
+
   parameter_callback_handle_ = add_on_set_parameters_callback(
       std::bind(&OakFfcCameraImuComponent::onParametersChanged, this, std::placeholders::_1));
 
@@ -88,6 +141,10 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
 }
 
 OakFfcCameraImuComponent::~OakFfcCameraImuComponent() {
+  if (fps_display_timer_) {
+    fps_display_timer_->cancel();
+  }
+  fps_display_.reset();
   running_ = false;
   wake_cv_.notify_all();
   if (supervisor_thread_.joinable()) {
@@ -141,9 +198,17 @@ void OakFfcCameraImuComponent::connectDevice() {
     config = config_;
   }
 
+  std::string device_id;
+  config.cam_board_sockets = resolveStreamingSockets(config, device_id);
+  if (!running_) {
+    throw std::runtime_error("shutting down");
+  }
   auto bundle = createPipeline(config);
+  // 按 MxId 重开探测过的那台设备，多台 OAK 同时在线时不会连错。
   // 构造会阻塞到找到设备并上传完 pipeline；设备不存在时抛异常，由 supervisor 重试。
-  device_ = std::make_unique<dai::Device>(bundle.pipeline);
+  device_ = std::make_unique<dai::Device>(
+      bundle.pipeline, dai::DeviceInfo(device_id), usbSpeedFromString(config.usb_speed));
+  RCLCPP_INFO(get_logger(), "OAK USB link negotiated: %s", usbSpeedName(device_->getUsbSpeed()));
 
   {
     std::lock_guard<std::mutex> lock(control_mutex_);
@@ -153,8 +218,55 @@ void OakFfcCameraImuComponent::connectDevice() {
     }
   }
 
-  image_publisher_->attach(device_->getOutputQueue("sync", config.image_queue_size, false));
+  image_publisher_->attach(device_->getOutputQueue("sync", config.image_queue_size, false), config.cam_board_sockets);
   imu_publisher_->attach(device_->getOutputQueue("imu", config.imu_queue_size, false));
+}
+
+std::vector<std::string> OakFfcCameraImuComponent::resolveStreamingSockets(
+    const DriverConfig& config, std::string& device_id) {
+  // 请求了却不出帧的插座若进了正式 pipeline，Sync 节点会一直等那一路，整个图像流卡死。
+  // 固件上报的相机列表不可靠（见 camera_probe.h），所以先用一次独立启动跑探测 pipeline，
+  // 只保留真正出帧的插座；探测设备随作用域关闭，再由调用方用正式 pipeline 重开。
+  // 构造会阻塞到找到设备；设备不存在时抛异常，由 supervisor 重试。
+  dai::Device probe_device(deviceConfig(config), usbSpeedFromString(config.usb_speed));
+  device_id = probe_device.getMxId();
+  const auto selection = selectSockets(config.cam_board_sockets, reportedSockets(probe_device));
+  const auto probe_timeout = std::max<std::chrono::milliseconds>(
+      kMinProbeTimeout, std::chrono::milliseconds(kProbeFramePeriods * 1000 / config.fps));
+  const auto streaming = probeStreamingSockets(probe_device, config, selection.selected, probe_timeout);
+
+  std::vector<std::string> silent;
+  for (const auto& socket : selection.selected) {
+    if (std::find(streaming.begin(), streaming.end(), socket) == streaming.end()) {
+      silent.push_back(socket);
+    }
+  }
+  if (isAutoDetect(config.cam_board_sockets)) {
+    if (!silent.empty()) {
+      RCLCPP_INFO(
+          get_logger(), "Firmware reported %s but no frames arrived (not plugged in), skipping",
+          joinSockets(silent).c_str());
+    }
+  } else {
+    if (!selection.missing.empty()) {
+      RCLCPP_WARN(
+          get_logger(), "Requested cameras not detected by firmware (check FFC cable), skipping: %s",
+          joinSockets(selection.missing).c_str());
+    }
+    if (!silent.empty()) {
+      RCLCPP_WARN(
+          get_logger(), "Requested cameras detected but produced no frames, skipping: %s",
+          joinSockets(silent).c_str());
+    }
+  }
+  if (streaming.empty()) {
+    const auto reported = reportedSockets(probe_device);
+    throw std::runtime_error(
+        "no requested camera is streaming on the OAK (firmware detected: " +
+        (reported.empty() ? std::string("none") : joinSockets(reported)) + ")");
+  }
+  RCLCPP_INFO(get_logger(), "Streaming cameras: %s", joinSockets(streaming).c_str());
+  return streaming;
 }
 
 void OakFfcCameraImuComponent::disconnectDevice() {

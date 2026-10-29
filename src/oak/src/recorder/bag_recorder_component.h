@@ -11,6 +11,7 @@
 #include <thread>
 #include <vector>
 
+#include "oak_interfaces/msg/isp_meta_array.hpp"
 #include "oak_interfaces/srv/record.hpp"
 #include "rclcpp/rclcpp.hpp"
 #include "rosbag2_cpp/writer.hpp"
@@ -25,7 +26,8 @@ namespace oak_ffc_camera_imu {
 // lazy_publisher。图像回调只入有界队列，JPEG 压缩在工作线程里做，不阻塞 executor；
 // 队列满时丢帧并计数，保证录制不会拖垮机载端。
 //
-// 图像按 record_hz 抽帧（相机仍按 fps 采集，只是少写盘）：以绝对时间 1/record_hz 为格子，
+// 图像按 record_hz 抽帧（默认 = 相机帧率即全录；设小于帧率时相机仍按 fps 采集，只是少写盘）：
+// 以绝对时间 1/record_hz 为格子，
 // 每格只留第一帧。4 路同步组共享同一时间戳，所以抽到的总是同一组；和其它相机的录制也落在
 // 同一套时间格上，便于离线配对。
 //
@@ -52,6 +54,7 @@ class BagRecorderComponent : public rclcpp::Node {
   // 去重 + 抽帧判定；period_ns <= 0 时只去重。只在 executor 线程里调用。
   bool acceptStamp(const std::string& topic, const builtin_interfaces::msg::Time& stamp, int64_t period_ns);
   void onImu(sensor_msgs::msg::Imu::ConstSharedPtr imu);
+  void onIspMeta(oak_interfaces::msg::IspMetaArray::ConstSharedPtr meta);
   void encodeWorker();
   std::string nextBagPath() const;
   std::string namedBagPath(const std::string& bag_name) const;
@@ -66,6 +69,7 @@ class BagRecorderComponent : public rclcpp::Node {
   int64_t record_period_ns_ = 0;  // 图像抽帧间隔，0 = 不抽帧
   std::vector<std::string> cam_board_sockets_;
   std::string imu_topic_;
+  std::string isp_meta_topic_;
 
   rclcpp::Service<oak_interfaces::srv::Record>::SharedPtr service_;
 
@@ -93,6 +97,7 @@ class BagRecorderComponent : public rclcpp::Node {
 
   std::atomic<std::uint64_t> images_written_{0};
   std::atomic<std::uint64_t> imu_written_{0};
+  std::atomic<std::uint64_t> isp_meta_written_{0};
   std::atomic<std::uint64_t> images_dropped_{0};
   std::uint64_t duplicates_skipped_ = 0;
 };

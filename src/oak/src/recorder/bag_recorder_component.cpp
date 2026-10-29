@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include "opencv2/imgcodecs.hpp"
+#include "camera_imu/socket_list.h"
 #include "rclcpp_components/register_node_macro.hpp"
 #include "sensor_msgs/image_encodings.hpp"
 #include "sensor_msgs/msg/compressed_image.hpp"
@@ -22,6 +23,21 @@ std::string expandHome(const std::string& path) {
   }
   const char* home = std::getenv("HOME");
   return home ? std::string(home) + path.substr(1) : path;
+}
+
+// 命令行 record_hz:=4 会被 launch 解析成整数，直接 declare_parameter<double> 会因类型不符构造失败；
+// 这里整数 / 浮点都接受。
+double declareNumber(rclcpp::Node& node, const std::string& name, double default_value) {
+  rcl_interfaces::msg::ParameterDescriptor descriptor;
+  descriptor.dynamic_typing = true;
+  const auto value = node.declare_parameter(name, rclcpp::ParameterValue(default_value), descriptor);
+  if (value.get_type() == rclcpp::ParameterType::PARAMETER_INTEGER) {
+    return static_cast<double>(value.get<int64_t>());
+  }
+  if (value.get_type() == rclcpp::ParameterType::PARAMETER_DOUBLE) {
+    return value.get<double>();
+  }
+  throw std::runtime_error("parameter '" + name + "' must be a number");
 }
 
 bool hasValidStorage(const sensor_msgs::msg::Image& msg) {
@@ -39,11 +55,15 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   jpeg_quality_ = static_cast<int>(declare_parameter<int64_t>("jpeg_quality", 90));
   const auto jpeg_threads = declare_parameter<int64_t>("jpeg_threads", 2);
   const auto max_queue = declare_parameter<int64_t>("max_queue", 60);
-  max_duration_s_ = declare_parameter<double>("max_duration_s", 600.0);
-  const auto record_hz = declare_parameter<double>("record_hz", 4.0);
-  cam_board_sockets_ = declare_parameter<std::vector<std::string>>(
-      "cam_board_sockets", std::vector<std::string>{"CAM_A", "CAM_B", "CAM_C", "CAM_D"});
+  max_duration_s_ = declareNumber(*this, "max_duration_s", 600.0);
+  const auto record_hz = declareNumber(*this, "record_hz", 999.0);
+  const auto camera_fps = declare_parameter<int64_t>("camera_fps", 30);
+  // 与驱动共用同一个 launch 参数。ALL 时订阅全部插座的话题，没插的那几路没有数据，自然不进 bag。
+  declareSocketListParameter(*this, allSocketNames());
+  cam_board_sockets_ = expandSockets(parseSocketList(get_parameter("cam_board_sockets")));
   imu_topic_ = declare_parameter<std::string>("imu_topic", "/imu");
+  // 每组图像一条的 ISP 元数据（曝光 / ISO / AWB 色温），录下来方便离线核对当时的 3A 状态；空字符串 = 不录。
+  isp_meta_topic_ = declare_parameter<std::string>("isp_meta_topic", "/isp_meta");
 
   if (jpeg_quality_ < 1 || jpeg_quality_ > 100) {
     throw std::runtime_error("jpeg_quality must be within 1..100");
@@ -60,7 +80,12 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   if (record_hz < 0.0) {
     throw std::runtime_error("record_hz must be >= 0 (0 = keep every frame)");
   }
-  record_period_ns_ = record_hz > 0.0 ? static_cast<int64_t>(1e9 / record_hz) : 0;
+  // record_hz >= 相机帧率时全录：时间格周期与帧周期几乎相等，相机实际帧率略高于标称值时
+  // 会偶发两帧落进同一格而误丢一帧，所以这种情况直接不抽帧。
+  const bool decimate = record_hz > 0.0 && record_hz < static_cast<double>(camera_fps);
+  record_period_ns_ = decimate ? static_cast<int64_t>(1e9 / record_hz) : 0;
+  const auto record_rate_desc =
+      decimate ? std::to_string(record_hz) : "all frames (" + std::to_string(camera_fps) + "Hz)";
   if (cam_board_sockets_.empty()) {
     throw std::runtime_error("cam_board_sockets must contain at least one camera socket");
   }
@@ -76,10 +101,10 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
 
   RCLCPP_INFO(
       get_logger(),
-      "Bag recorder ready: service=/oak/record bag_root=%s storage=%s record_hz=%.2f jpeg_quality=%d jpeg_threads=%ld",
+      "Bag recorder ready: service=/oak/record bag_root=%s storage=%s record_hz=%s jpeg_quality=%d jpeg_threads=%ld",
       bag_root_.c_str(),
       storage_id_.c_str(),
-      record_hz,
+      record_rate_desc.c_str(),
       jpeg_quality_,
       static_cast<long>(jpeg_threads));
 }
@@ -182,6 +207,7 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
 
   images_written_ = 0;
   imu_written_ = 0;
+  isp_meta_written_ = 0;
   images_dropped_ = 0;
   duplicates_skipped_ = 0;
   last_stamp_ns_.clear();
@@ -221,6 +247,22 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
       },
       imu_sub_options));
 
+  if (!isp_meta_topic_.empty()) {
+    // 与 IMU 同样走 DDS；发布端是 reliable，这里也用 reliable 才能匹配。不抽帧：抽帧只针对图像，
+    // 元数据全录才能看到 AE/AWB 在两次写盘之间的变化。
+    rclcpp::SubscriptionOptions meta_sub_options;
+    meta_sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
+    subscriptions_.push_back(create_subscription<oak_interfaces::msg::IspMetaArray>(
+        isp_meta_topic_,
+        rclcpp::QoS(rclcpp::KeepLast(50)),
+        [this](oak_interfaces::msg::IspMetaArray::ConstSharedPtr meta) {
+          if (acceptStamp(isp_meta_topic_, meta->header.stamp, 0)) {
+            onIspMeta(std::move(meta));
+          }
+        },
+        meta_sub_options));
+  }
+
   stop_timer_ = create_wall_timer(
       std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::duration<double>(duration_s)),
       [this]() {
@@ -256,10 +298,11 @@ void BagRecorderComponent::stopRecording() {
   recording_ = false;
   RCLCPP_INFO(
       get_logger(),
-      "\033[0;32mRecording finished: \033[0m%s (images=%lu imu=%lu dropped=%lu duplicates_skipped=%lu)",
+      "\033[0;32mRecording finished: \033[0m%s (images=%lu imu=%lu isp_meta=%lu dropped=%lu duplicates_skipped=%lu)",
       bag_path_.c_str(),
       static_cast<unsigned long>(images_written_.load()),
       static_cast<unsigned long>(imu_written_.load()),
+      static_cast<unsigned long>(isp_meta_written_.load()),
       static_cast<unsigned long>(images_dropped_.load()),
       static_cast<unsigned long>(duplicates_skipped_));
   if (imu_written_ == 0) {
@@ -315,6 +358,19 @@ void BagRecorderComponent::onImu(sensor_msgs::msg::Imu::ConstSharedPtr imu) {
     ++imu_written_;
   } catch (const std::exception& error) {
     RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "Failed to write IMU: %s", error.what());
+  }
+}
+
+void BagRecorderComponent::onIspMeta(oak_interfaces::msg::IspMetaArray::ConstSharedPtr meta) {
+  std::lock_guard<std::mutex> lock(writer_mutex_);
+  if (!writer_) {
+    return;
+  }
+  try {
+    writer_->write(*meta, isp_meta_topic_, rclcpp::Time(meta->header.stamp));
+    ++isp_meta_written_;
+  } catch (const std::exception& error) {
+    RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "Failed to write ISP metadata: %s", error.what());
   }
 }
 

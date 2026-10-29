@@ -17,7 +17,7 @@ from launch.substitutions import LaunchConfiguration
 #   话题     不以 "/" 开头的按相机前缀 /<camera_namespace>/<camera_name>/ 展开，
 #            以 "/" 开头的原样使用（如 /tf_static）。
 #   QoS      reliable    —— 普通数据流，与驱动的 DEFAULT QoS 匹配（见 camera_parameters 的 *_qos）
-#            best_effort —— 能匹配任意发布端（IMU 用这个，驱动 IMU 的 QoS 不受 *_qos 参数控制）
+#            best_effort —— 能匹配任意发布端（发布端 QoS 不确定时用）
 #            latched     —— 只发一次的静态数据（/tf_static、extrinsics），transient_local
 #   启用条件 None 总是录；"imu" 仅 enable_imu 时录；"align_depth" 仅 align_depth 时录。
 #
@@ -30,19 +30,29 @@ RECORD_TOPICS = [
     # 深度（Z16 -> 16UC1，单位 mm；坐标系 = infra1，即左红外）
     ("depth/image_rect_raw", "sensor_msgs/msg/Image", "reliable", None),
     ("depth/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", None),
-    # 左 / 右红外（全局快门，mono8）
-    ("infra1/image_rect_raw", "sensor_msgs/msg/Image", "reliable", None),
-    ("infra1/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", None),
-    ("infra2/image_rect_raw", "sensor_msgs/msg/Image", "reliable", None),
-    ("infra2/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", None),
-    # IMU（accel + gyro 插值合成单一话题）
-    ("imu", "sensor_msgs/msg/Imu", "best_effort", "imu"),
-    # 外参：驱动以 depth（= infra1）为基准发布到各流的旋转 + 平移，工厂标定值
+    # 外参：深度 -> RGB 的旋转 + 平移（工厂标定值，column-major 旋转，单位米）
     ("extrinsics/depth_to_color", "realsense2_camera_msgs/msg/Extrinsics", "latched", None),
-    ("extrinsics/depth_to_infra1", "realsense2_camera_msgs/msg/Extrinsics", "latched", None),
-    ("extrinsics/depth_to_infra2", "realsense2_camera_msgs/msg/Extrinsics", "latched", None),
-    # 完整 TF 树：<cam>_link -> color / depth / infra1 / infra2 / imu 各 frame 及 optical frame
+    # IMU（accel 100Hz + gyro 200Hz 线性插值合成单一话题，约 200Hz）；enable_imu:=false 时自动不录
+    ("imu", "sensor_msgs/msg/Imu", "reliable", "imu"),
+    # IMU 内参（噪声方差、零偏）与 深度 -> accel / gyro 外参（D435i 出厂无 IMU 标定，是型号默认值）
+    ("accel/imu_info", "realsense2_camera_msgs/msg/IMUInfo", "latched", "imu"),
+    ("gyro/imu_info", "realsense2_camera_msgs/msg/IMUInfo", "latched", "imu"),
+    ("extrinsics/depth_to_accel", "realsense2_camera_msgs/msg/Extrinsics", "latched", "imu"),
+    ("extrinsics/depth_to_gyro", "realsense2_camera_msgs/msg/Extrinsics", "latched", "imu"),
+
+    # 动捕刚体位姿不在这里录：由独立的 vrpn_recorder.launch.py 录成单独的 bag（相机拔插 / 崩溃不影响动捕）。
+    # 完整 TF 树（各 frame 间的静态外参），latched，体积可忽略
     ("/tf_static", "tf2_msgs/msg/TFMessage", "latched", None),
+
+    # ---- 以下当前不录，需要时去掉 "#"。红外还要 enable_infra:=true ----
+    # 左 / 右红外（全局快门，mono8）
+    # ("infra1/image_rect_raw", "sensor_msgs/msg/Image", "reliable", None),
+    # ("infra1/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", None),
+    # ("infra2/image_rect_raw", "sensor_msgs/msg/Image", "reliable", None),
+    # ("infra2/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", None),
+    # ("extrinsics/depth_to_infra1", "realsense2_camera_msgs/msg/Extrinsics", "latched", None),
+    # ("extrinsics/depth_to_infra2", "realsense2_camera_msgs/msg/Extrinsics", "latched", None),
+    # 完整 TF 树：<cam>_link -> color / depth / infra1 / infra2 / imu 各 frame 及 optical frame
     # 对齐到 RGB 的深度（逐像素与 color 对应，内参同 color）；align_depth:=true 时才发布
     ("aligned_depth_to_color/image_raw", "sensor_msgs/msg/Image", "reliable", "align_depth"),
     ("aligned_depth_to_color/camera_info", "sensor_msgs/msg/CameraInfo", "reliable", "align_depth"),
@@ -58,14 +68,15 @@ CAMERA_DEFAULTS = {
     "initial_reset": "false",
     "tf_prefix": "",
     # 流参数：所有流同一份 profile，帧率一致好对齐
-    "width": "640",
+    "width": "848",
     "height": "480",
     "fps": "30",
     "enable_imu": "true",
+    "enable_infra": "false",
     "align_depth": "false",
     # 曝光（见 exposure_params）
-    "exposure_us": "3000",
-    "rgb_gain": "64",
+    "exposure_us": "6000",
+    "rgb_gain": "128",
     # 热插拔：驱动在相机不在时一直等，拔掉后每隔 reconnect_timeout 秒重新找设备
     "reconnect_timeout": "2.0",
 }
@@ -78,7 +89,8 @@ CAMERA_DESCRIPTIONS = {
     "initial_reset": "启动前硬复位相机，用于从异常状态恢复",
     "tf_prefix": "所有 frame_id 的额外前缀",
     "fps": "降低可减少磁盘占用（见 recorder.launch.py 文件头的数据量估算）",
-    "enable_imu": "发布并录制 D435i 内置 IMU（/<camera_name>/imu），false 关闭",
+    "enable_imu": "发布并录制 D435i 内置 IMU（/<camera_name>/imu 及其内参 / 外参），false 关闭",
+    "enable_infra": "发布左右红外图像；关闭时深度照常输出（深度在相机芯片里算），省 USB 带宽",
     "align_depth": "额外发布并录制对齐到 RGB 的深度（aligned_depth_to_color），占额外 CPU 与磁盘",
     "exposure_us": "曝光上限（µs）。红外保持自动曝光但上限锁在此值，暗了由自动增益补；"
                    "RGB 改为手动曝光取此值；<=0 恢复全自动",
@@ -210,11 +222,11 @@ def camera_parameters(context, enable_imu):
         "rgb_camera.color_profile": profile,
         "rgb_camera.color_format": "RGB8",
 
-        # 深度 + 左右红外（全局快门 mono8）。深度同时是驱动发布 extrinsics 的基准流，
-        # 关掉深度就拿不到 depth_to_color / infra1 / infra2 外参。
+        # 深度 + 左右红外（全局快门 mono8，enable_infra 控制）。深度同时是驱动发布 extrinsics 的
+        # 基准流，关掉深度就拿不到 depth_to_color 外参。
         "enable_depth": True,
-        "enable_infra1": True,
-        "enable_infra2": True,
+        "enable_infra1": _bool(context, "enable_infra"),
+        "enable_infra2": _bool(context, "enable_infra"),
         "depth_module.depth_profile": profile,
         "depth_module.infra_profile": profile,
         "depth_module.depth_format": "Z16",

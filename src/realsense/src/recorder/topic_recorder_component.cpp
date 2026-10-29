@@ -1,6 +1,9 @@
 #include "recorder/topic_recorder_component.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <ctime>
 #include <filesystem>
@@ -9,6 +12,7 @@
 #include <stdexcept>
 
 #include "rclcpp_components/register_node_macro.hpp"
+#include "recorder/cdr_header_stamp.h"
 
 namespace realsense_ros2 {
 namespace {
@@ -39,6 +43,13 @@ rclcpp::QoS parseQos(const std::string& topic, const std::string& kind) {
   return qos;
 }
 
+// header.stamp 与接收时刻相差超过这个值，认为 stamp 不可信（例如发布端用了别的时钟），退回接收时刻。
+// 正常的采集到接收延迟是几十 ms。
+constexpr std::int64_t kMaxStampSkewNs = 5'000'000'000;
+
+// 开录后多久检查一次"有没有话题一直没数据"：留出 DDS 发现 + 第一帧的时间。
+constexpr std::chrono::seconds kSilentTopicCheckDelay{2};
+
 }  // namespace
 
 TopicRecorderComponent::TopicRecorderComponent(const rclcpp::NodeOptions& options)
@@ -62,7 +73,9 @@ TopicRecorderComponent::TopicRecorderComponent(const rclcpp::NodeOptions& option
     throw std::runtime_error("record_topics / record_types / record_qos must have the same length");
   }
   for (std::size_t i = 0; i < names.size(); ++i) {
-    topics_.push_back({names[i], types[i], parseQos(names[i], qos[i])});
+    // latched 是只发一次的静态数据，stamp 是很久以前的，放回原时间轴没有意义，仍用接收时刻。
+    const bool stamp_as_log_time = qos[i] != "latched" && hasLeadingHeader(types[i]);
+    topics_.push_back({names[i], types[i], parseQos(names[i], qos[i]), stamp_as_log_time});
   }
 
   service_ = create_service<oak_interfaces::srv::Record>(
@@ -198,9 +211,48 @@ void TopicRecorderComponent::startRecording(const std::string& bag_path, double 
         stopRecording();
       });
 
+  if (duration_s > std::chrono::duration<double>(kSilentTopicCheckDelay).count()) {
+    check_timer_ = create_wall_timer(kSilentTopicCheckDelay, [this]() {
+      check_timer_->cancel();
+      warnSilentTopics();
+    });
+  }
+
   recording_ = true;
   bag_path_ = bag_path;
   RCLCPP_INFO(get_logger(), "Recording %.1fs to %s", duration_s, bag_path.c_str());
+}
+
+void TopicRecorderComponent::warnSilentTopics() {
+  std::map<std::string, std::uint64_t> counts;
+  {
+    std::lock_guard<std::mutex> lock(writer_mutex_);
+    counts = counts_;
+  }
+  std::map<std::string, std::vector<std::string>> graph;  // 只在有话题没数据时才查
+  for (const auto& spec : topics_) {
+    // latched 只发一次，可能早于本次录制；没收到不代表配置错。
+    if (spec.qos.durability() == rclcpp::DurabilityPolicy::TransientLocal || counts.count(spec.name) > 0) {
+      continue;
+    }
+    if (graph.empty()) {
+      graph = get_topic_names_and_types();
+    }
+    std::ostringstream candidates;
+    for (const auto& [name, types] : graph) {
+      if (name != spec.name && std::find(types.begin(), types.end(), spec.type) != types.end()) {
+        candidates << " " << name;
+      }
+    }
+    const auto publishers = count_publishers(spec.name);
+    RCLCPP_WARN(
+        get_logger(),
+        "%s: no message after %llds (publishers=%zu). Same-type topics available:%s",
+        spec.name.c_str(),
+        static_cast<long long>(kSilentTopicCheckDelay.count()),
+        publishers,
+        candidates.str().empty() ? " (none)" : candidates.str().c_str());
+  }
 }
 
 void TopicRecorderComponent::stopRecording() {
@@ -209,6 +261,10 @@ void TopicRecorderComponent::stopRecording() {
   if (stop_timer_) {
     stop_timer_->cancel();
     stop_timer_.reset();
+  }
+  if (check_timer_) {
+    check_timer_->cancel();
+    check_timer_.reset();
   }
 
   std::map<std::string, std::uint64_t> counts;
@@ -244,12 +300,25 @@ void TopicRecorderComponent::onMessage(
   const auto source_ns = info.get_rmw_message_info().source_timestamp;
   const auto send_ns = source_ns > 0 ? source_ns : recv_ns;
 
+  auto log_ns = recv_ns;
+  if (spec.stamp_as_log_time) {
+    const auto& raw = message->get_rcl_serialized_message();
+    const auto stamp_ns = readLeadingHeaderStamp(raw.buffer, raw.buffer_length);
+    if (stamp_ns && std::abs(*stamp_ns - recv_ns) <= kMaxStampSkewNs) {
+      log_ns = *stamp_ns;
+    } else {
+      RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 5000,
+          "%s: header.stamp missing or >5s from receive time, using receive time as bag time", spec.name.c_str());
+    }
+  }
+
   std::lock_guard<std::mutex> lock(writer_mutex_);
   if (!writer_) {
     return;
   }
   try {
-    writer_->write(std::move(message), spec.name, spec.type, recv_ns, send_ns);
+    writer_->write(std::move(message), spec.name, spec.type, log_ns, send_ns);
     ++counts_[spec.name];
   } catch (const std::exception& error) {
     RCLCPP_ERROR_THROTTLE(

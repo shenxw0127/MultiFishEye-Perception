@@ -1,22 +1,8 @@
 #include "camera_imu/config.h"
 
-#include <algorithm>
-#include <sstream>
 #include <stdexcept>
 
 namespace oak_ffc_camera_imu {
-namespace {
-
-std::string trim(std::string value) {
-  const auto first = value.find_first_not_of(" \t\n\r[]");
-  if (first == std::string::npos) {
-    return "";
-  }
-  const auto last = value.find_last_not_of(" \t\n\r[]");
-  return value.substr(first, last - first + 1);
-}
-
-}  // namespace
 
 const std::map<std::string, CameraSocketConfig>& cameraSocketOptions() {
   static const std::map<std::string, CameraSocketConfig> options = {
@@ -45,6 +31,22 @@ const std::map<std::string, ResolutionConfig>& resolutionOptions() {
   return options;
 }
 
+ResolutionConfig resolveResolution(const DriverConfig& config) {
+  auto resolution = resolutionOptions().at(config.resolution);
+  if (config.camera_name == "ar0234") {
+    if (config.resolution == "400p") {
+      resolution.color_resolution = dai::node::ColorCamera::Properties::SensorResolution::THE_1200_P;
+      resolution.isp_scale_num = 1;
+      resolution.isp_scale_den = 3;
+    } else if (config.resolution == "800p") {
+      resolution.color_resolution = dai::node::ColorCamera::Properties::SensorResolution::THE_1200_P;
+      resolution.isp_scale_num = 2;
+      resolution.isp_scale_den = 3;
+    }
+  }
+  return resolution;
+}
+
 void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("tf_prefix", defaults.tf_prefix);
   node.declare_parameter("camera_name", defaults.camera_name);
@@ -52,16 +54,20 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("resolution", defaults.resolution);
   node.declare_parameter("fps", defaults.fps);
   node.declare_parameter("compressed", defaults.compressed);
+  node.declare_parameter("usb_speed", defaults.usb_speed);
+  node.declare_parameter("xlink_mjpeg", defaults.xlink_mjpeg);
+  node.declare_parameter("jpeg_quality", defaults.jpeg_quality);
   node.declare_parameter("oak_fw_uri", defaults.oak_fw_uri);
   node.declare_parameter("imu_config_path", defaults.imu_config_path);
   node.declare_parameter("imu_correction_enabled", defaults.imu_correction_enabled);
   node.declare_parameter("imu_hz", defaults.imu_hz);
-  node.declare_parameter("cam_board_sockets", defaults.cam_board_sockets);
+  declareSocketListParameter(node, defaults.cam_board_sockets);
   node.declare_parameter("sync_threshold_ms", defaults.sync_threshold_ms);
   node.declare_parameter("image_queue_size", defaults.image_queue_size);
   node.declare_parameter("imu_queue_size", defaults.imu_queue_size);
   node.declare_parameter("lazy_publisher", defaults.lazy_publisher);
   node.declare_parameter("reconnect_interval_ms", defaults.reconnect_interval_ms);
+  node.declare_parameter("fps_display", defaults.fps_display);
   node.declare_parameter("manual_exposure_us", defaults.manual_exposure_us);
   node.declare_parameter("manual_iso", defaults.manual_iso);
   node.declare_parameter("exposure_compensation", defaults.exposure_compensation);
@@ -84,6 +90,9 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.resolution = node.get_parameter("resolution").as_string();
   config.fps = static_cast<int>(node.get_parameter("fps").as_int());
   config.compressed = node.get_parameter("compressed").as_bool();
+  config.usb_speed = node.get_parameter("usb_speed").as_string();
+  config.xlink_mjpeg = node.get_parameter("xlink_mjpeg").as_bool();
+  config.jpeg_quality = static_cast<int>(node.get_parameter("jpeg_quality").as_int());
   config.oak_fw_uri = node.get_parameter("oak_fw_uri").as_string();
   config.imu_config_path = node.get_parameter("imu_config_path").as_string();
   config.imu_correction_enabled = node.get_parameter("imu_correction_enabled").as_bool();
@@ -94,6 +103,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.imu_queue_size = static_cast<int>(node.get_parameter("imu_queue_size").as_int());
   config.lazy_publisher = node.get_parameter("lazy_publisher").as_bool();
   config.reconnect_interval_ms = static_cast<int>(node.get_parameter("reconnect_interval_ms").as_int());
+  config.fps_display = node.get_parameter("fps_display").as_bool();
   config.manual_exposure_us = static_cast<int>(node.get_parameter("manual_exposure_us").as_int());
   config.manual_iso = static_cast<int>(node.get_parameter("manual_iso").as_int());
   config.exposure_compensation = static_cast<int>(node.get_parameter("exposure_compensation").as_int());
@@ -116,6 +126,10 @@ void validateConfig(const DriverConfig& config) {
   }
   if (config.fps <= 0) {
     throw std::runtime_error("fps must be greater than zero");
+  }
+  usbSpeedFromString(config.usb_speed);
+  if (config.jpeg_quality < 1 || config.jpeg_quality > 100) {
+    throw std::runtime_error("jpeg_quality must be within 1..100");
   }
   if (config.imu_hz <= 0) {
     throw std::runtime_error("imu_hz must be greater than zero");
@@ -169,7 +183,7 @@ void validateConfig(const DriverConfig& config) {
   }
 
   const auto& sockets = cameraSocketOptions();
-  for (const auto& socket_name : config.cam_board_sockets) {
+  for (const auto& socket_name : expandSockets(config.cam_board_sockets)) {
     if (sockets.find(socket_name) == sockets.end()) {
       throw std::runtime_error("unsupported camera socket: " + socket_name);
     }
@@ -190,6 +204,16 @@ void validateConfig(const DriverConfig& config) {
   }
 }
 
+dai::UsbSpeed usbSpeedFromString(const std::string& value) {
+  if (value == "super") {
+    return dai::UsbSpeed::SUPER;
+  }
+  if (value == "high") {
+    return dai::UsbSpeed::HIGH;
+  }
+  throw std::runtime_error("usb_speed must be either 'super' or 'high'");
+}
+
 std::string toString(CameraType type) {
   return type == CameraType::Color ? "color" : "mono";
 }
@@ -202,27 +226,6 @@ CameraType cameraTypeFromString(const std::string& value) {
     return CameraType::Mono;
   }
   throw std::runtime_error("camera_type must be either 'color' or 'mono'");
-}
-
-std::vector<std::string> parseSocketList(const rclcpp::Parameter& parameter) {
-  if (parameter.get_type() == rclcpp::ParameterType::PARAMETER_STRING_ARRAY) {
-    return parameter.as_string_array();
-  }
-
-  if (parameter.get_type() != rclcpp::ParameterType::PARAMETER_STRING) {
-    throw std::runtime_error("cam_board_sockets must be a string array or comma-separated string");
-  }
-
-  std::vector<std::string> sockets;
-  std::stringstream stream(parameter.as_string());
-  std::string item;
-  while (std::getline(stream, item, ',')) {
-    const auto socket = trim(item);
-    if (!socket.empty()) {
-      sockets.push_back(socket);
-    }
-  }
-  return sockets;
 }
 
 }  // namespace oak_ffc_camera_imu

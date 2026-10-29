@@ -3,7 +3,7 @@
   <name>realsense_ros2</name>
   <version>1.1.0</version>
   <description>
-    RealSense D435i launch 包：30Hz 实时发布彩色点云 (XYZRGB) + RGB 图像，
+    RealSense D435i / D405 launch 包（D405 见 d405.launch.py：官方 ASIC 深度 + librealsense 后处理）；D435i：30Hz 实时发布彩色点云 (XYZRGB) + RGB 图像，
     并附带全局快门的左红外图；以及服务触发的定时录制（RGB / 深度 / 左右红外 / IMU / 外参）。
     相机节点复用官方 realsense2_camera 组件，本包只编译录制组件。
   </description>
@@ -33,10 +33,16 @@
   <!-- record_all.launch.py：include oak.launch.py，record_all.py 协调节点用 rclpy -->
   <exec_depend>oak_ros2</exec_depend>
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>rosbag2_py</exec_depend>
+  <exec_depend>vrpn_mocap</exec_depend>
   <!-- launch 里用 get_package_share_directory 定位 config/fastdds_large_data.xml -->
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
+  <test_depend>sensor_msgs</test_depend>
+  <test_depend>builtin_interfaces</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

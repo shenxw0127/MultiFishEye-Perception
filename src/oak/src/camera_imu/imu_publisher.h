@@ -1,7 +1,9 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 
@@ -30,6 +32,9 @@ class ImuPublisher {
   void attach(std::shared_ptr<dai::DataOutputQueue> queue);
   void detach();
   bool healthy() const { return healthy_; }
+  // 本次 attach 以来收到的 IMU 包数（每包一条 sensor_msgs/Imu），供终端帧率显示。
+  // 未 attach 时为 nullopt。可在任意线程调用。
+  std::optional<std::uint64_t> packetCount() const;
 
  private:
   void run();
@@ -43,6 +48,8 @@ class ImuPublisher {
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr publisher_;
   std::atomic_bool running_{false};
   std::atomic_bool healthy_{false};
+  std::atomic_bool attached_{false};
+  std::atomic<std::uint64_t> packet_count_{0};
   std::thread thread_;
 };
 

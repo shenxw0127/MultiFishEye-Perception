@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Fast DDS 大数据传输配置 —— 640x480 图像与彩色点云跑满 30Hz 的必要条件。
+  Fast DDS 大数据传输配置 —— 848x480 图像与彩色点云跑满 30Hz 的必要条件。
 
   为什么需要它
   ============
   Fast DDS（Humble 默认 RMW）的共享内存传输默认段大小只有 512KB。本相机的单帧大小：
-      infra1 mono8 640x480 = 307KB   -> 小于 512KB，默认配置就能满 30Hz
-      depth  Z16   640x480 = 614KB   -> 超了
-      color  rgb8  640x480 = 922KB   -> 超了
-      点云   XYZRGB(32B/点)          -> 最大 9.8MB，远超
-  超过段大小的样本会退回 UDP 分片（922KB 要切成 ~660 个数据报），而内核
+      infra1 mono8 848x480 = 407KB   -> 小于 512KB，默认配置就能满 30Hz
+      depth  Z16   848x480 = 814KB   -> 超了
+      color  rgb8  848x480 = 1.2MB   -> 超了
+      点云   XYZRGB(32B/点)          -> 最大 13MB，远超
+  超过段大小的样本会退回 UDP 分片（1.2MB 要切成 ~870 个数据报），而内核
   net.core.rmem_max 默认只有 208KB，连一帧都放不下，于是大量分片被丢弃。
   丢一片就废掉整帧，实测帧率从 30Hz 掉到 5Hz 左右。
 
@@ -45,7 +45,7 @@
         <type>SHM</type>
         <!-- 128MB：够放下十几帧最大的点云，留足抖动余量 -->
         <segment_size>134217728</segment_size>
-        <!-- 单条消息上限 16MB，覆盖 9.8MB 的满分辨率有序点云 -->
+        <!-- 单条消息上限 16MB，覆盖 13MB 的 848x480 有序点云 -->
         <maxMessageSize>16777216</maxMessageSize>
       </transport_descriptor>
       <transport_descriptor>

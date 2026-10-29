@@ -32,6 +32,8 @@ ImuPublisher::~ImuPublisher() {
 void ImuPublisher::attach(std::shared_ptr<dai::DataOutputQueue> queue) {
   detach();
   queue_ = std::move(queue);
+  packet_count_ = 0;
+  attached_ = true;
   healthy_ = true;
   running_ = true;
   thread_ = std::thread(&ImuPublisher::run, this);
@@ -44,6 +46,14 @@ void ImuPublisher::detach() {
   }
   queue_.reset();
   healthy_ = false;
+  attached_ = false;
+}
+
+std::optional<std::uint64_t> ImuPublisher::packetCount() const {
+  if (!attached_) {
+    return std::nullopt;
+  }
+  return packet_count_.load();
 }
 
 void ImuPublisher::run() {
@@ -84,6 +94,7 @@ void ImuPublisher::run() {
       for (const auto& packet : data->packets) {
         publisher_->publish(toRosMsg(packet));
       }
+      packet_count_ += data->packets.size();
     }
   } catch (const std::exception& error) {
     RCLCPP_WARN(node_.get_logger(), "IMU stream stopped: %s", error.what());

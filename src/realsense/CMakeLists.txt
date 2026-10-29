@@ -25,7 +25,17 @@ rclcpp_components_register_nodes(
 # 联合录制协调节点：/record_all 同时触发 OAK 与 RealSense 录制
 install(PROGRAMS
   scripts/record_all.py
+  scripts/check_session_sync.py
   DESTINATION lib/${PROJECT_NAME}
 )
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(sensor_msgs REQUIRED)
+  # header-only 解析函数 + 真实 rclcpp 序列化结果，验证 CDR 布局假设
+  ament_auto_add_gtest(test_cdr_header_stamp test/test_cdr_header_stamp.cpp)
+  target_include_directories(test_cdr_header_stamp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(test_cdr_header_stamp ${sensor_msgs_TARGETS})
+endif()
 
 ament_auto_package(INSTALL_TO_SHARE launch config)

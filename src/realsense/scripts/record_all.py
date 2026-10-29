@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""联合录制协调节点：一个 /record_all 请求同时触发 OAK 与 RealSense 录制，两个 bag 放进同一个 session 目录。
+"""联合录制协调节点：一个 /record_all 请求同时触发 OAK / RealSense / VRPN 录制，bag 放进同一个 session 目录。
 
     ros2 service call /record_all oak_interfaces/srv/Record "{duration_s: 30}"
     -> <bag_root>/session_<时间戳>/oak    （4 路鱼眼 JPEG @record_hz + IMU）
-       <bag_root>/session_<时间戳>/d435i  （RGB / 深度 / 左右红外 / IMU / 外参）
+       <bag_root>/session_<时间戳>/d435i  （RGB / 深度 / IMU / 外参 / tf_static）
+       <bag_root>/session_<时间戳>/vrpn   （动捕刚体位姿，vrpn:=false 时没有）
 
-两路录制是两个独立进程各自写 bag（大图像不跨进程传），开始/结束时刻相差几 ms，离线按重叠区间裁剪。
+各路录制是独立进程各自写 bag（大图像不跨进程传），开始/结束时刻相差几 ms，离线按重叠区间裁剪。
 时间对齐靠 header.stamp：两边都是"采集时刻 + 主机系统时钟"，按最近时间戳配对即可（见 record_all.launch.py）。
 bag_name 若在请求里给出则作为 session 目录名。
 """
