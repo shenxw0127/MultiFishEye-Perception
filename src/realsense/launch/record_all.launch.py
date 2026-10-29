@@ -10,7 +10,7 @@
     ros2 service call /record_all oak_interfaces/srv/Record "{duration_s: 30}"
     -> <bag_root>/session_<时间戳>/{oak,d435i,vrpn}
        vrpn bag 里每个刚体一个话题：默认 /vrpn_mocap/realsense/pose 与 /vrpn_mocap/eyes4/pose（两台相机各自的位姿）
-单独录某一路照旧：/oak/record、/d435i/record、/vrpn/record。vrpn:=false 则只录两台相机。
+单独录某一路照旧：/oak/record（oak_ns 改了则为 /<oak_ns>/record）、/d435i/record、/vrpn/record。vrpn:=false 则只录两台相机。
 
 进程结构：三路各一个容器（oak.launch.py、recorder.launch.py、vrpn_recorder.launch.py 原样 include），
 互不影响：一台相机拔插 / 崩溃重启不打断另一路，动捕数据也不依赖相机。再加一个 record_all 协调节点并行转发请求。
@@ -47,6 +47,8 @@ LAUNCH_ARGS = [
     DeclareLaunchArgument("oak_launch", default_value="oak.launch.py",
                           description="oak_ros2 包里用哪个 launch 起 OAK：oak.launch.py（USB3 彩色 400p）"
                                       "或 oak_usb2_mono.launch.py（USB2 + 厂商黑白 + 设备端 MJPEG）"),
+    DeclareLaunchArgument("oak_ns", default_value="oak",
+                          description="OAK 话题命名空间：/<oak_ns>/CAM_A/image，录制服务 /<oak_ns>/record"),
     DeclareLaunchArgument("foxglove", default_value="false",
                           description="两个相机容器各开一个 foxglove_bridge（OAK 8765，RealSense 8766）。"
                                       "OAK 那个不设白名单，连 8765 就能同时看到两台相机和 /isp_meta"),
@@ -88,6 +90,7 @@ def launch_setup(context, *args, **kwargs):
         "oak_ros2", LaunchConfiguration("oak_launch").perform(context),
         **camera_common,
         record_hz=LaunchConfiguration("oak_record_hz"),
+        ns=LaunchConfiguration("oak_ns"),
         foxglove_port="8765",
     )
     realsense = _include(
@@ -97,7 +100,8 @@ def launch_setup(context, *args, **kwargs):
     )
     actions = [oak, realsense]
     # record_all 转发的子服务：{bag 子目录名: 服务名}，子目录名同时是 session 目录下的 bag 名
-    targets = ["oak:/oak/record", "d435i:/d435i/record"]
+    oak_ns = LaunchConfiguration("oak_ns").perform(context).strip("/")
+    targets = [f"oak:/{oak_ns}/record", "d435i:/d435i/record"]
 
     if LaunchConfiguration("vrpn").perform(context).strip().lower() in ("1", "true", "yes", "on"):
         actions.append(_include(

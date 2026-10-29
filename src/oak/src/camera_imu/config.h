@@ -52,6 +52,9 @@ struct DriverConfig {
   // 设备端 MJPEG 质量 1..100（xlink_mjpeg 或 compressed 时生效）。
   int jpeg_quality = 95;
   std::string oak_fw_uri;
+  // 绑定的设备 MxId（如 "19443010E1BD652E00"），空 = 连第一台空闲 OAK。多台同时在线时必须填：
+  // 不填的话各节点探测时会互抢设备。不要填 USB 端口路径，固件启动后设备会换到 USB3 总线、路径会变。
+  std::string device_id;
   std::string imu_config_path;
   bool imu_correction_enabled = true;
   int imu_hz = 200;

@@ -11,7 +11,7 @@ namespace oak_ffc_camera_imu {
 namespace {
 
 constexpr const char* kEncodingNv12 = "nv12";
-// 与 imu 一样是相对话题名，组件挂在根命名空间时就是 /isp_meta。
+// 与 imu 一样是相对话题名，跟随组件命名空间（ns:=oak 时为 /oak/isp_meta）。
 constexpr const char* kIspMetaTopic = "isp_meta";
 // 连续这么久收不到同步组就判为停流（含 attach 后等首组：实测首组 < 1s）。
 constexpr auto kStallTimeout = std::chrono::milliseconds(3000);

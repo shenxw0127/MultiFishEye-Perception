@@ -81,7 +81,8 @@ def summarize(name, values_ns):
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("session", help="session 目录（含 oak / d435i / vrpn 三个 bag）")
-    parser.add_argument("--oak-topic", default="/CAM_A/image/compressed")
+    parser.add_argument("--oak-topic", default="/oak/CAM_A/image/compressed",
+                        help="旧版（无命名空间）录的 bag 用 /CAM_A/image/compressed")
     parser.add_argument("--rs-topic", default="/d435i/color/image_raw")
     parser.add_argument("--vrpn-topic", action="append", default=None,
                         help="动捕位姿话题，可重复；默认 vrpn bag 里所有 PoseStamped 话题")

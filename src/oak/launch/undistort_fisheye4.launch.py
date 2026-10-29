@@ -3,12 +3,13 @@ import sys
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 
 # OAK 驱动组件参数（分辨率/帧率/ISP 等）集中在同目录的 oak_camera_params.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from oak_camera_params import oak_launch_args, oak_parameters  # noqa: E402
+from oak_camera_params import ns_launch_arg, oak_launch_args, oak_parameters  # noqa: E402
 
 
 def generate_launch_description():
@@ -19,6 +20,7 @@ def generate_launch_description():
     FIXED = {"compressed": False, "lazy_publisher": False}
 
     launch_args = [
+        ns_launch_arg(),
         *oak_launch_args(FIXED),
     ]
 
@@ -30,17 +32,19 @@ def generate_launch_description():
         ("CAM_D", "camd-camchain.yaml"),
     ]
 
+    ns = LaunchConfiguration("ns")
     undistort_nodes = [
         ComposableNode(
             package="oak_ros2",
             plugin="oak_ffc_camera_imu::FisheyeUndistortComponent",
             name=f"undistort_{cam.lower()}",
-            namespace="undistort",
+            # 输出在 /<ns>/undistort/<cam>/image_rect
+            namespace=[ns, "/undistort"],
             parameters=[
                 {"camchain_path": os.path.join(camera_cfg_dir, camchain)},
-                {"input_topic": f"/{cam}/image"},
+                {"input_topic": ["/", ns, f"/{cam}/image"]},
                 {"output_topic": f"{cam}/image_rect"},
-                {"output_frame_id": f"oak_{cam}_optical_frame"},
+                {"output_frame_id": [LaunchConfiguration("tf_prefix"), f"_{cam}_optical_frame"]},
             ],
             extra_arguments=[{"use_intra_process_comms": True}],
         )
@@ -59,6 +63,7 @@ def generate_launch_description():
                 package="oak_ros2",
                 plugin="oak_ffc_camera_imu::OakFfcCameraImuComponent",
                 name="oak_ffc_camera_imu",
+                namespace=ns,
                 parameters=[
                     *oak_parameters(FIXED),
                 ],

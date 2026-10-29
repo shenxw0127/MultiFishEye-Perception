@@ -2,6 +2,9 @@
 
     ros2 launch oak_ros2 oak.launch.py                 # 默认不开 foxglove
     ros2 launch oak_ros2 oak.launch.py foxglove:=true  # 地面调试时实时看图
+    ros2 launch oak_ros2 oak.launch.py ns:=front       # 话题改到 /front/...
+
+话题在 /<ns> 下（默认 ns=oak）：/oak/CAM_A/image、/oak/imu、/oak/isp_meta。
 
 录制：
     ros2 service call /oak/record oak_interfaces/srv/Record "{duration_s: 30}"
@@ -20,6 +23,7 @@ from launch_ros.descriptions import ComposableNode, ParameterValue
 # OAK 驱动组件和录制组件的参数集中在同目录的 oak_camera_params.py
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from oak_camera_params import (  # noqa: E402
+    ns_launch_arg,
     oak_launch_args,
     oak_parameters,
     recorder_launch_args,
@@ -32,6 +36,7 @@ def generate_launch_description():
     FIXED = {"compressed": False}
 
     launch_args = [
+        ns_launch_arg(),
         *oak_launch_args(FIXED, resolution="400p"),
         *recorder_launch_args(),
         DeclareLaunchArgument("foxglove", default_value="true"),
@@ -54,14 +59,16 @@ def generate_launch_description():
                 package="oak_ros2",
                 plugin="oak_ffc_camera_imu::OakFfcCameraImuComponent",
                 name="oak_ffc_camera_imu",
+                namespace=LaunchConfiguration("ns"),
                 parameters=oak_parameters(FIXED),
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),
-            # 2. 录制组件：/oak/record 触发，只在录制期间订阅 raw 图像（进程内零拷贝）
+            # 2. 录制组件：/<ns>/record 触发，只在录制期间订阅 raw 图像（进程内零拷贝）
             ComposableNode(
                 package="oak_ros2",
                 plugin="oak_ffc_camera_imu::BagRecorderComponent",
                 name="oak_bag_recorder",
+                namespace=LaunchConfiguration("ns"),
                 parameters=recorder_parameters(),
                 extra_arguments=[{"use_intra_process_comms": True}],
             ),

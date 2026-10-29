@@ -58,6 +58,7 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("xlink_mjpeg", defaults.xlink_mjpeg);
   node.declare_parameter("jpeg_quality", defaults.jpeg_quality);
   node.declare_parameter("oak_fw_uri", defaults.oak_fw_uri);
+  node.declare_parameter("device_id", defaults.device_id);
   node.declare_parameter("imu_config_path", defaults.imu_config_path);
   node.declare_parameter("imu_correction_enabled", defaults.imu_correction_enabled);
   node.declare_parameter("imu_hz", defaults.imu_hz);
@@ -94,6 +95,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.xlink_mjpeg = node.get_parameter("xlink_mjpeg").as_bool();
   config.jpeg_quality = static_cast<int>(node.get_parameter("jpeg_quality").as_int());
   config.oak_fw_uri = node.get_parameter("oak_fw_uri").as_string();
+  config.device_id = node.get_parameter("device_id").as_string();
   config.imu_config_path = node.get_parameter("imu_config_path").as_string();
   config.imu_correction_enabled = node.get_parameter("imu_correction_enabled").as_bool();
   config.imu_hz = static_cast<int>(node.get_parameter("imu_hz").as_int());

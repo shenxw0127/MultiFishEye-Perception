@@ -228,7 +228,12 @@ std::vector<std::string> OakFfcCameraImuComponent::resolveStreamingSockets(
   // 固件上报的相机列表不可靠（见 camera_probe.h），所以先用一次独立启动跑探测 pipeline，
   // 只保留真正出帧的插座；探测设备随作用域关闭，再由调用方用正式 pipeline 重开。
   // 构造会阻塞到找到设备；设备不存在时抛异常，由 supervisor 重试。
-  dai::Device probe_device(deviceConfig(config), usbSpeedFromString(config.usb_speed));
+  const auto usb_speed = usbSpeedFromString(config.usb_speed);
+  const auto probe_owner =
+      config.device_id.empty()
+          ? std::make_unique<dai::Device>(deviceConfig(config), usb_speed)
+          : std::make_unique<dai::Device>(deviceConfig(config), dai::DeviceInfo(config.device_id), usb_speed);
+  auto& probe_device = *probe_owner;
   device_id = probe_device.getMxId();
   const auto selection = selectSockets(config.cam_board_sockets, reportedSockets(probe_device));
   const auto probe_timeout = std::max<std::chrono::milliseconds>(

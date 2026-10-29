@@ -45,7 +45,9 @@ def parse_args():
         description="对录制的 ROS2 bag 中的 IMU 数据做椭球标定，输出 imu.yaml。"
     )
     parser.add_argument("--bag", required=True, help="ROS2 bag 目录路径（含 metadata.yaml）")
-    parser.add_argument("--topic", default="/imu", help="IMU 话题名（默认 /imu）")
+    parser.add_argument(
+        "--topic", default="/oak/imu", help="IMU 话题名（默认 /oak/imu；旧版无命名空间的 bag 用 /imu）"
+    )
     parser.add_argument(
         "--gravity", type=float, default=9.7936, help="当地重力加速度 m/s^2（默认 9.81）"
     )

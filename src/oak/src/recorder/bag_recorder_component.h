@@ -20,7 +20,8 @@
 
 namespace oak_ffc_camera_imu {
 
-// 按需定时录制：收到 /oak/record 请求后录 duration_s 秒 rosbag，到时自动收尾。
+// 按需定时录制：收到 <namespace>/record（默认 /oak/record）请求后录 duration_s 秒 rosbag，到时自动收尾。
+// 话题和服务都相对节点命名空间，与驱动放在同一个 namespace 下即可。
 //
 // 只在录制期间订阅 raw 图像和 IMU（同容器 intra-process，零拷贝），平时不影响驱动的
 // lazy_publisher。图像回调只入有界队列，JPEG 压缩在工作线程里做，不阻塞 executor；
@@ -56,6 +57,10 @@ class BagRecorderComponent : public rclcpp::Node {
   void onImu(sensor_msgs::msg::Imu::ConstSharedPtr imu);
   void onIspMeta(oak_interfaces::msg::IspMetaArray::ConstSharedPtr meta);
   void encodeWorker();
+  // 相对名按节点命名空间展开成全名，如 namespace=/oak 时 "imu" -> "/oak/imu"。
+  std::string resolveTopic(const std::string& topic) {
+    return get_node_topics_interface()->resolve_topic_name(topic);
+  }
   std::string nextBagPath() const;
   std::string namedBagPath(const std::string& bag_name) const;
 

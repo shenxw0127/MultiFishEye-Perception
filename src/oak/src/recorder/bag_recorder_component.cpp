@@ -61,9 +61,14 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   // 与驱动共用同一个 launch 参数。ALL 时订阅全部插座的话题，没插的那几路没有数据，自然不进 bag。
   declareSocketListParameter(*this, allSocketNames());
   cam_board_sockets_ = expandSockets(parseSocketList(get_parameter("cam_board_sockets")));
-  imu_topic_ = declare_parameter<std::string>("imu_topic", "/imu");
+  // 话题都相对节点命名空间（与驱动同 namespace 时即 /<ns>/imu），存解析后的全名：订阅和写进 bag 都用它，
+  // bag 里的话题名与实时话题一致。
+  imu_topic_ = resolveTopic(declare_parameter<std::string>("imu_topic", "imu"));
   // 每组图像一条的 ISP 元数据（曝光 / ISO / AWB 色温），录下来方便离线核对当时的 3A 状态；空字符串 = 不录。
-  isp_meta_topic_ = declare_parameter<std::string>("isp_meta_topic", "/isp_meta");
+  isp_meta_topic_ = declare_parameter<std::string>("isp_meta_topic", "isp_meta");
+  if (!isp_meta_topic_.empty()) {
+    isp_meta_topic_ = resolveTopic(isp_meta_topic_);
+  }
 
   if (jpeg_quality_ < 1 || jpeg_quality_ > 100) {
     throw std::runtime_error("jpeg_quality must be within 1..100");
@@ -96,12 +101,13 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   }
 
   service_ = create_service<oak_interfaces::srv::Record>(
-      "/oak/record",
+      "record",
       std::bind(&BagRecorderComponent::onRecordRequest, this, std::placeholders::_1, std::placeholders::_2));
 
   RCLCPP_INFO(
       get_logger(),
-      "Bag recorder ready: service=/oak/record bag_root=%s storage=%s record_hz=%s jpeg_quality=%d jpeg_threads=%ld",
+      "Bag recorder ready: service=%s bag_root=%s storage=%s record_hz=%s jpeg_quality=%d jpeg_threads=%ld",
+      service_->get_service_name(),
       bag_root_.c_str(),
       storage_id_.c_str(),
       record_rate_desc.c_str(),
@@ -220,7 +226,7 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
   rclcpp::QoS image_qos(rclcpp::KeepLast(5));
   image_qos.best_effort();
   for (const auto& socket : cam_board_sockets_) {
-    const auto input_topic = "/" + socket + "/image";
+    const auto input_topic = resolveTopic(socket + "/image");
     const auto output_topic = input_topic + "/compressed";
     subscriptions_.push_back(create_subscription<sensor_msgs::msg::Image>(
         input_topic,
@@ -241,7 +247,7 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
       imu_topic_,
       imu_qos,
       [this](sensor_msgs::msg::Imu::ConstSharedPtr imu) {
-        if (acceptStamp("/imu", imu->header.stamp, 0)) {
+        if (acceptStamp(imu_topic_, imu->header.stamp, 0)) {
           onImu(std::move(imu));
         }
       },
@@ -354,7 +360,7 @@ void BagRecorderComponent::onImu(sensor_msgs::msg::Imu::ConstSharedPtr imu) {
     return;
   }
   try {
-    writer_->write(*imu, "/imu", rclcpp::Time(imu->header.stamp));
+    writer_->write(*imu, imu_topic_, rclcpp::Time(imu->header.stamp));
     ++imu_written_;
   } catch (const std::exception& error) {
     RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 2000, "Failed to write IMU: %s", error.what());

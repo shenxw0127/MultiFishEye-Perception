@@ -8,7 +8,11 @@ launch 文件的用法：
 
     FIXED = {"compressed": False, "lazy_publisher": False}   # 本 launch 写死、不暴露为参数
     launch_args = [*oak_launch_args(FIXED, resolution="400p"), ...]  # 关键字 = 改默认值
-    ComposableNode(..., parameters=oak_parameters(FIXED))
+    launch_args = [ns_launch_arg(), *oak_launch_args(FIXED), ...]  # ns 必须先于 tf_prefix 声明
+    ComposableNode(..., namespace=LaunchConfiguration("ns"), parameters=oak_parameters(FIXED))
+
+话题命名空间 ns（默认 oak）：驱动和录制组件挂在 /<ns> 下，话题为 /oak/CAM_A/image、/oak/imu、
+/oak/isp_meta，录制服务为 /oak/record。tf_prefix 默认跟随 ns，多实例时 frame_id 也不会撞。
 """
 
 import os
@@ -20,13 +24,18 @@ from launch.substitutions import LaunchConfiguration
 # 驱动基础参数：设备、分辨率、帧率、同步、队列、IMU。
 # resolution 默认 800p，与 config/camera/*-camchain.yaml 的标定分辨率 [1280, 800] 一致；
 # 400p（800p sensor + ISP 1/2 缩放）视场不变但内参减半，依赖标定的 launch 不要直接切。
+NS_DEFAULT = "oak"
+
 DRIVER_DEFAULTS = {
-    "tf_prefix": "oak",
+    # 默认取 ns 的值（DeclareLaunchArgument 执行时才求值，所以 ns 要先声明）
+    "tf_prefix": LaunchConfiguration("ns"),
     "camera_name": "ov9782",
     "camera_type": "color",
     "resolution": "400p",
     "fps": "30",
     "oak_fw_uri": "",
+    # 绑定的 OAK MxId，空 = 第一台空闲设备；多台同时接入时必须填
+    "device_id": "",
     "imu_config_path": os.path.join(get_package_share_directory("oak_ros2"), "config", "imu.yaml"),
     "imu_correction_enabled": "true",
     "compressed": "false",
@@ -69,6 +78,8 @@ CAMERA_DEFAULTS = {
 }
 
 DESCRIPTIONS = {
+    "tf_prefix": "frame_id 前缀（<tf_prefix>_CAM_A_optical_frame），默认同 ns",
+    "device_id": "OAK MxId；空=连第一台空闲设备。查询：lsusb -v -d 03e7: | grep iSerial",
     "resolution": "400p/480p/720p/800p/1080p/1200p/4k；color 下 400p 为 800p + ISP 1/2 缩放",
     "imu_correction_enabled": "apply accel bias/scale + gyro bias correction from imu_config_path "
     "(set false to publish raw IMU)",
@@ -84,7 +95,7 @@ DESCRIPTIONS = {
 ALL_DEFAULTS = {**DRIVER_DEFAULTS, **CAMERA_DEFAULTS}
 
 # 录制组件（BagRecorderComponent）参数。cam_board_sockets 与驱动共用同一个 launch 参数。
-# 触发：ros2 service call /oak/record oak_interfaces/srv/Record "{duration_s: 30}"
+# 触发：ros2 service call /<ns>/record oak_interfaces/srv/Record "{duration_s: 30}"（默认 /oak/record）
 RECORDER_DEFAULTS = {
     "bag_root": "~/rosbags",
     "bag_prefix": "fisheye4",
@@ -97,6 +108,12 @@ RECORDER_DEFAULTS = {
     # 相机仍按 fps 采集，录制只按绝对时间格每 1/record_hz 秒留一组。
     "record_hz": "999.0",
 }
+
+
+def ns_launch_arg(default=NS_DEFAULT):
+    """话题命名空间 launch 参数，放在 oak_launch_args 之前。"""
+    return DeclareLaunchArgument(
+        "ns", default_value=default, description="话题命名空间：/<ns>/CAM_A/image、/<ns>/imu、/<ns>/record")
 
 
 def oak_launch_args(fixed=None, **overrides):
@@ -134,11 +151,15 @@ def recorder_launch_args():
     return [DeclareLaunchArgument(name, default_value=value) for name, value in RECORDER_DEFAULTS.items()]
 
 
-def recorder_parameters():
-    """传给 BagRecorderComponent 的 parameters= 字典列表。"""
-    return [
-        *({name: LaunchConfiguration(name)} for name in RECORDER_DEFAULTS),
-        {"cam_board_sockets": LaunchConfiguration("cam_board_sockets")},
+def recorder_parameters(**overrides):
+    """传给 BagRecorderComponent 的 parameters= 字典列表。overrides 替换对应参数的值（如多机时按设备给插座）。"""
+    params = {
+        **{name: LaunchConfiguration(name) for name in RECORDER_DEFAULTS},
+        "cam_board_sockets": LaunchConfiguration("cam_board_sockets"),
         # 相机帧率与驱动共用 fps 参数，用来判断 record_hz 是否需要抽帧
-        {"camera_fps": LaunchConfiguration("fps")},
-    ]
+        "camera_fps": LaunchConfiguration("fps"),
+    }
+    unknown = set(overrides) - set(params)
+    if unknown:
+        raise KeyError(f"unknown recorder parameters: {sorted(unknown)}")
+    return [{name: value} for name, value in {**params, **overrides}.items()]
