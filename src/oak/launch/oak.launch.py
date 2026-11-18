@@ -4,6 +4,11 @@
     ros2 launch oak_ros2 oak.launch.py foxglove:=true  # 地面调试时实时看图
     ros2 launch oak_ros2 oak.launch.py ns:=front       # 话题改到 /front/...
 
+两台不同 sensor 的 OAK 分两个终端起（也可以直接用 oak_dual.launch.py）：
+    ros2 launch oak_ros2 ar.launch.py  ns:=ar device_id:=19443010E1BD652E00 cam_board_sockets:="[CAM_A, CAM_B]"
+    ros2 launch oak_ros2 oak.launch.py ns:=ov device_id:=19443010319F502E00
+（两份都开 foxglove:=true 会抢 8765 端口，只开一份或改 foxglove_port）
+
 话题在 /<ns> 下（默认 ns=oak）：/oak/CAM_A/image、/oak/imu、/oak/isp_meta。
 
 录制：
@@ -39,13 +44,14 @@ def generate_launch_description():
         ns_launch_arg(),
         *oak_launch_args(FIXED, resolution="400p"),
         *recorder_launch_args(),
-        DeclareLaunchArgument("foxglove", default_value="true"),
+        DeclareLaunchArgument("foxglove", default_value="false"),
         DeclareLaunchArgument("foxglove_port", default_value="8765"),
     ]
 
     container = ComposableNodeContainer(
         name="oak_container",
-        namespace="",
+        # 容器放进 ns：同时起两份 launch（如 ar + ov）时容器全名不同，组件不会被加载进对方进程
+        namespace=LaunchConfiguration("ns"),
         package="rclcpp_components",
         # component_container_isolated 已废弃，改用统一入口 + 参数
         executable="component_container",

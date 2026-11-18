@@ -37,8 +37,10 @@ SyncedImagePublisher::SyncedImagePublisher(
       image_width_(image_width),
       image_height_(image_height),
       time_converter_(std::move(time_converter)) {
+  // RELIABLE：下游 VIO（ov_srvins）按 RELIABLE 订阅，BEST_EFFORT 发布端与之匹配不上（不报错、收不到图）。
+  // RELIABLE 发布端对 BEST_EFFORT 订阅者（录制组件、foxglove）同样兼容。
   rclcpp::QoS qos(rclcpp::KeepLast(3));
-  qos.best_effort();
+  qos.reliable();
 
   for (const auto& topic : topics_) {
     if (compressed_) {

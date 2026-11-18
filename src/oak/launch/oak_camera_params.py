@@ -43,6 +43,8 @@ DRIVER_DEFAULTS = {
     "xlink_mjpeg": "false",
     "jpeg_quality": "95",
     "imu_hz": "200",
+    # true = 不用 IMU：不建 IMU 节点、不发布 imu 话题、不等 IMU 出数；录制组件也不录 IMU
+    "noimu": "false",
     # ALL = 启动时自动检测插着的相机；也可写显式列表，如 "[CAM_A, CAM_B]"（没插的会被跳过并告警）。
     # "cam_board_sockets": "ALL",
     "cam_board_sockets": "[CAM_A, CAM_B, CAM_C, CAM_D]",
@@ -88,6 +90,7 @@ DESCRIPTIONS = {
     "xlink_mjpeg": "设备端 MJPEG 过 XLink，主机解码回 mono8/bgr8；USB2 下 4 路 400p@30 必须开",
     "jpeg_quality": "设备端 MJPEG 质量 1..100；95 时 4×400p mono 约 7.5 MB/s",
     "lazy_publisher": "无订阅者时不发布；录制/下游组件消费时应关闭",
+    "noimu": "true = 不用 IMU：不发布 imu 话题、不等 IMU 启动（录制组件同样不录 IMU）",
     "reconnect_interval_ms": "相机不在或断连后的重连间隔",
     "fps_display": "在启动终端单行刷新各路相机实际帧率（低于目标 95% 标红）；没有终端时自动关闭",
 }
@@ -158,6 +161,8 @@ def recorder_parameters(**overrides):
         "cam_board_sockets": LaunchConfiguration("cam_board_sockets"),
         # 相机帧率与驱动共用 fps 参数，用来判断 record_hz 是否需要抽帧
         "camera_fps": LaunchConfiguration("fps"),
+        # 驱动 noimu 时录制组件也不订阅 IMU
+        "noimu": LaunchConfiguration("noimu"),
     }
     unknown = set(overrides) - set(params)
     if unknown:

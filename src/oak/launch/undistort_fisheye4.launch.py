@@ -53,7 +53,8 @@ def generate_launch_description():
 
     container = ComposableNodeContainer(
         name="oak_undistort_container",
-        namespace="",
+        # 容器放进 ns：同时起两份 launch（如 ar + ov）时容器全名不同，组件不会被加载进对方进程
+        namespace=ns,
         package="rclcpp_components",
         executable="component_container",
         arguments=["--executor-type", "single-threaded", "--isolated"],

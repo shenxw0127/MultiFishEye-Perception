@@ -58,6 +58,8 @@ struct DriverConfig {
   std::string imu_config_path;
   bool imu_correction_enabled = true;
   int imu_hz = 200;
+  // 不用 IMU：pipeline 不建 IMU 节点、不发布 imu 话题，也没有 IMU 看门狗（不等 IMU 出数、不因它重连）。
+  bool noimu = false;
   // 显式插座列表，或 {"ALL"}：连设备后按实际插着的相机自动选路（见 socket_list.h）。
   std::vector<std::string> cam_board_sockets = {"CAM_A", "CAM_B", "CAM_C", "CAM_D"};
   int sync_threshold_ms = 50;

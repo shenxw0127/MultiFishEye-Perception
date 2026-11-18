@@ -64,6 +64,8 @@ BagRecorderComponent::BagRecorderComponent(const rclcpp::NodeOptions& options)
   // 话题都相对节点命名空间（与驱动同 namespace 时即 /<ns>/imu），存解析后的全名：订阅和写进 bag 都用它，
   // bag 里的话题名与实时话题一致。
   imu_topic_ = resolveTopic(declare_parameter<std::string>("imu_topic", "imu"));
+  // 与驱动共用 noimu 参数：驱动不发 imu 时这里也不订阅、不告警。
+  noimu_ = declare_parameter<bool>("noimu", false);
   // 每组图像一条的 ISP 元数据（曝光 / ISO / AWB 色温），录下来方便离线核对当时的 3A 状态；空字符串 = 不录。
   isp_meta_topic_ = declare_parameter<std::string>("isp_meta_topic", "isp_meta");
   if (!isp_meta_topic_.empty()) {
@@ -238,20 +240,22 @@ void BagRecorderComponent::startRecording(const std::string& bag_path, double du
         }));
   }
 
-  // IMU 走 intra-process 实测收不到（旧版 imu=0），消息小，直接走 DDS。
-  rclcpp::SubscriptionOptions imu_sub_options;
-  imu_sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
-  rclcpp::QoS imu_qos(rclcpp::KeepLast(200));
-  imu_qos.best_effort();
-  subscriptions_.push_back(create_subscription<sensor_msgs::msg::Imu>(
-      imu_topic_,
-      imu_qos,
-      [this](sensor_msgs::msg::Imu::ConstSharedPtr imu) {
-        if (acceptStamp(imu_topic_, imu->header.stamp, 0)) {
-          onImu(std::move(imu));
-        }
-      },
-      imu_sub_options));
+  if (!noimu_) {
+    // IMU 走 intra-process 实测收不到（旧版 imu=0），消息小，直接走 DDS。
+    rclcpp::SubscriptionOptions imu_sub_options;
+    imu_sub_options.use_intra_process_comm = rclcpp::IntraProcessSetting::Disable;
+    rclcpp::QoS imu_qos(rclcpp::KeepLast(200));
+    imu_qos.best_effort();
+    subscriptions_.push_back(create_subscription<sensor_msgs::msg::Imu>(
+        imu_topic_,
+        imu_qos,
+        [this](sensor_msgs::msg::Imu::ConstSharedPtr imu) {
+          if (acceptStamp(imu_topic_, imu->header.stamp, 0)) {
+            onImu(std::move(imu));
+          }
+        },
+        imu_sub_options));
+  }
 
   if (!isp_meta_topic_.empty()) {
     // 与 IMU 同样走 DDS；发布端是 reliable，这里也用 reliable 才能匹配。不抽帧：抽帧只针对图像，
@@ -311,7 +315,7 @@ void BagRecorderComponent::stopRecording() {
       static_cast<unsigned long>(isp_meta_written_.load()),
       static_cast<unsigned long>(images_dropped_.load()),
       static_cast<unsigned long>(duplicates_skipped_));
-  if (imu_written_ == 0) {
+  if (!noimu_ && imu_written_ == 0) {
     RCLCPP_WARN(get_logger(), "No IMU samples recorded from %s", imu_topic_.c_str());
   }
 }

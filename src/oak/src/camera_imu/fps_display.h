@@ -22,7 +22,8 @@ FpsBySocket computeFps(const FrameCounts& previous, const FrameCounts& current, 
 
 // 单行状态文本，不含光标控制符，形如
 //   [oak fps] CAM_A 30.0  CAM_B 30.0 /30  IMU 200 /200
-// 斜杠后是目标频率。cameras 为空表示设备未连接。color 为 true 时，低于目标 95% 的读数标红。
+// 斜杠后是目标频率。cameras 为空表示设备未连接。imu_target_hz <= 0 时不显示 IMU 一栏（noimu）。
+// color 为 true 时，低于目标 95% 的读数标红。
 std::string formatFpsLine(
     const std::string& label,
     const FpsBySocket& cameras,

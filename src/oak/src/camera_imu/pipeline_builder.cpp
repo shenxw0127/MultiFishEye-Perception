@@ -1,5 +1,6 @@
 #include "camera_imu/pipeline_builder.h"
 
+#include <algorithm>
 #include <chrono>
 #include <stdexcept>
 
@@ -36,19 +37,42 @@ GPIO.setup(GPIO_FSIN_4LANE, GPIO.IN)
 GPIO.setup(GPIO_FSIN_MODE_SELECT, GPIO.OUT)
 GPIO.write(GPIO_FSIN_MODE_SELECT, 1)
 
-period = 1 / fps
+period = 1.0 / fps
 active = 0.001
-overhead = 0.003
 
+def now():
+    return Clock.now().total_seconds()
+
+# 按绝对时刻排期：第 k 个脉冲的上升沿目标是 t0 + k*period，sleep 醒晚了也不会累积漂移，
+# 平均频率严格等于 fps。（厂商原版是相对延时 sleep(period - active - 0.003)，平均频率随
+# LEON_CSS 负载漂。）单个脉冲仍有几毫秒抖动，靠 sensor 帧时长留余量吸收，见 sensorFps()。
+next_edge = now()
 while True:
     GPIO.write(GPIO_FSIN_2LANE, 1)
     time.sleep(active)
     GPIO.write(GPIO_FSIN_2LANE, 0)
-    time.sleep(period - active - overhead)
+    next_edge += period
+    delay = next_edge - now()
+    if delay > 0:
+        time.sleep(delay)
+    elif delay < -period:
+        # 落后超过一整周期（脚本被长时间抢占）：重新对齐，不连发补脉冲
+        next_edge = now()
 )");
 }
 
 bool usesSensorFsyncMaster(const DriverConfig& config) { return config.camera_name == "ov9782"; }
+
+// 脚本触发模式下 sensor 自身的帧率（决定帧时长）。实测 LEON_CSS 负载 ~80% 时 Script 的
+// time.sleep 每次都醒晚，最多晚 6-14ms，相邻两个 FSIN 脉冲的间隔会短到 ~20ms。sensor 帧时长
+// 若等于触发周期（setFps(fps)），读出未完成时到达的脉冲会被忽略、整帧丢掉，30fps 只剩 27-28fps。
+// 所以 sensor 按 60fps 配置（AR0234 1200p 上限），帧时长 16.7ms，抖动的脉冲也都能接住；
+// 实际出帧频率仍由脚本的 fps 决定。代价：触发模式下曝光上限变成 ~16ms（当前 AE 上限 3ms，无影响）。
+constexpr int kTriggeredSensorFps = 60;
+
+int sensorFps(const DriverConfig& config) {
+  return usesSensorFsyncMaster(config) ? config.fps : std::max(config.fps, kTriggeredSensorFps);
+}
 
 // OV9782：首路 sensor 作 FSIN 主机输出脉冲，其余跟随。
 // AR0234 等其它 sensor：由 LEON_CSS 上的 fsyncScript 用 GPIO 打 FSIN 脉冲，所有 sensor
@@ -102,7 +126,7 @@ PipelineBundle createPipeline(const DriverConfig& config) {
         // ISP 硬件缩放，VPU 上完成，主机端零开销，且按像素缩放不裁视场。
         camera->setIspScale(resolution.isp_scale_num, resolution.isp_scale_den);
       }
-      camera->setFps(config.fps);
+      camera->setFps(sensorFps(config));
       camera->inputControl.setBlocking(false);
       camera->inputControl.setQueueSize(4);
       camera->inputControl.setWaitForMessage(false);
@@ -129,7 +153,7 @@ PipelineBundle createPipeline(const DriverConfig& config) {
       auto camera = bundle.pipeline.create<dai::node::MonoCamera>();
       camera->setBoardSocket(socket_config.socket);
       camera->setResolution(resolution.mono_resolution);
-      camera->setFps(config.fps);
+      camera->setFps(sensorFps(config));
       camera->inputControl.setBlocking(false);
       camera->inputControl.setQueueSize(4);
       camera->inputControl.setWaitForMessage(false);
@@ -152,15 +176,17 @@ PipelineBundle createPipeline(const DriverConfig& config) {
 
   bundle.image_topics = imageTopics(config);
 
-  auto imu = bundle.pipeline.create<dai::node::IMU>();
-  auto x_imu_out = bundle.pipeline.create<dai::node::XLinkOut>();
-  x_imu_out->setStreamName("imu");
-  imu->enableIMUSensor(
-      {dai::IMUSensor::ROTATION_VECTOR, dai::IMUSensor::ACCELEROMETER_RAW, dai::IMUSensor::GYROSCOPE_RAW},
-      config.imu_hz);
-  imu->setBatchReportThreshold(1);
-  imu->setMaxBatchReports(10);
-  imu->out.link(x_imu_out->input);
+  if (!config.noimu) {
+    auto imu = bundle.pipeline.create<dai::node::IMU>();
+    auto x_imu_out = bundle.pipeline.create<dai::node::XLinkOut>();
+    x_imu_out->setStreamName("imu");
+    imu->enableIMUSensor(
+        {dai::IMUSensor::ROTATION_VECTOR, dai::IMUSensor::ACCELEROMETER_RAW, dai::IMUSensor::GYROSCOPE_RAW},
+        config.imu_hz);
+    imu->setBatchReportThreshold(1);
+    imu->setMaxBatchReports(10);
+    imu->out.link(x_imu_out->input);
+  }
 
   bundle.pipeline.setBoardConfig(deviceConfig(config).board);
   if (!usesSensorFsyncMaster(config)) {

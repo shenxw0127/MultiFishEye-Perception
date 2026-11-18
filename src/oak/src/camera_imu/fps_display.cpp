@@ -61,6 +61,9 @@ std::string formatFpsLine(
             formatRate(entry.second, camera_target_fps, "%4.1f", " -- ", color);
   }
   line += " /" + std::to_string(camera_target_fps);
+  if (imu_target_hz <= 0) {
+    return line;
+  }
   // IMU 只看整数 Hz 就够了，省下的宽度让 4 路相机 + IMU 能放进 80 列。
   return line + "  IMU " + formatRate(imu_hz, imu_target_hz, "%3.0f", " --", color) + " /" +
          std::to_string(imu_target_hz);

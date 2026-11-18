@@ -62,6 +62,7 @@ void declareParameters(rclcpp::Node& node, const DriverConfig& defaults) {
   node.declare_parameter("imu_config_path", defaults.imu_config_path);
   node.declare_parameter("imu_correction_enabled", defaults.imu_correction_enabled);
   node.declare_parameter("imu_hz", defaults.imu_hz);
+  node.declare_parameter("noimu", defaults.noimu);
   declareSocketListParameter(node, defaults.cam_board_sockets);
   node.declare_parameter("sync_threshold_ms", defaults.sync_threshold_ms);
   node.declare_parameter("image_queue_size", defaults.image_queue_size);
@@ -99,6 +100,7 @@ DriverConfig readParameters(rclcpp::Node& node) {
   config.imu_config_path = node.get_parameter("imu_config_path").as_string();
   config.imu_correction_enabled = node.get_parameter("imu_correction_enabled").as_bool();
   config.imu_hz = static_cast<int>(node.get_parameter("imu_hz").as_int());
+  config.noimu = node.get_parameter("noimu").as_bool();
   config.cam_board_sockets = parseSocketList(node.get_parameter("cam_board_sockets"));
   config.sync_threshold_ms = static_cast<int>(node.get_parameter("sync_threshold_ms").as_int());
   config.image_queue_size = static_cast<int>(node.get_parameter("image_queue_size").as_int());

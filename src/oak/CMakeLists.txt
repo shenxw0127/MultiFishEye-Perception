@@ -100,6 +100,10 @@ if(BUILD_TESTING)
   target_include_directories(test_socket_list PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   ament_auto_add_gtest(test_fps_display test/test_fps_display.cpp src/camera_imu/fps_display.cpp)
   target_include_directories(test_fps_display PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  ament_auto_add_gtest(test_pipeline_builder test/test_pipeline_builder.cpp src/camera_imu/pipeline_builder.cpp
+    src/camera_imu/config.cpp src/camera_imu/camera_controls.cpp src/camera_imu/socket_list.cpp)
+  target_include_directories(test_pipeline_builder PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_link_libraries(test_pipeline_builder depthai::core)
 endif()
 
 ament_auto_package(INSTALL_TO_SHARE launch config)

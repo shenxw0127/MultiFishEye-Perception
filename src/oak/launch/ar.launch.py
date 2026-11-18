@@ -1,7 +1,8 @@
 """AR0234 传感器的 oak.launch.py 预设（参考厂商 oak_ffc_sync_ar0234.launch.py）。
 
-    ros2 launch oak_ros2 ar.launch.py
-    ros2 launch oak_ros2 ar.launch.py foxglove:=false fps:=60
+    ros2 launch oak_ros2 ar.launch.py                  # 默认不开 foxglove（继承 oak.launch.py）
+    ros2 launch oak_ros2 ar.launch.py foxglove:=true   # 地面调试时实时看图
+    ros2 launch oak_ros2 ar.launch.py fps:=60
 
 - camera_name=ar0234：驱动据此走脚本 FSIN 同步（LEON_CSS 上用 GPIO 打帧同步脉冲，
   所有 sensor 均为 INPUT），而不是 OV9782 的“首路 sensor 输出 FSIN”。

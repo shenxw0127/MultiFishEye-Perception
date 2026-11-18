@@ -61,15 +61,16 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
     RCLCPP_INFO(get_logger(), "Using OAK firmware: %s", config_.oak_fw_uri.c_str());
   }
 
+  const auto imu_desc = config_.noimu ? std::string("off (noimu)") : std::to_string(config_.imu_hz) + "Hz";
   RCLCPP_INFO(
       get_logger(),
-      "Starting OAK FFC camera/IMU component: camera=%s type=%s resolution=%s fps=%d imu_hz=%d compressed=%s "
+      "Starting OAK FFC camera/IMU component: camera=%s type=%s resolution=%s fps=%d imu=%s compressed=%s "
       "usb_speed=%s xlink_mjpeg=%s",
       config_.camera_name.c_str(),
       toString(config_.camera_type).c_str(),
       config_.resolution.c_str(),
       config_.fps,
-      config_.imu_hz,
+      imu_desc.c_str(),
       config_.compressed ? "true" : "false",
       config_.usb_speed.c_str(),
       config_.xlink_mjpeg ? "true" : "false");
@@ -105,27 +106,32 @@ OakFfcCameraImuComponent::OakFfcCameraImuComponent(const rclcpp::NodeOptions& op
       resolutionOptions().at(config_.resolution).height,
       time_converter_);
 
-  auto imu_correction = config_.imu_correction_enabled
-                            ? ImuCorrection::loadFromYaml(config_.imu_config_path)
-                            : ImuCorrection::identity();
-  if (imu_correction.enabled()) {
-    RCLCPP_INFO(get_logger(), "Using IMU correction config: %s", config_.imu_config_path.c_str());
-  } else {
-    RCLCPP_INFO(get_logger(), "IMU correction disabled; publishing raw IMU data.");
+  // noimu 时不建 IMU publisher：不发布 imu 话题，也就没有 IMU 看门狗。
+  if (!config_.noimu) {
+    auto imu_correction = config_.imu_correction_enabled
+                              ? ImuCorrection::loadFromYaml(config_.imu_config_path)
+                              : ImuCorrection::identity();
+    if (imu_correction.enabled()) {
+      RCLCPP_INFO(get_logger(), "Using IMU correction config: %s", config_.imu_config_path.c_str());
+    } else {
+      RCLCPP_INFO(get_logger(), "IMU correction disabled; publishing raw IMU data.");
+    }
+    imu_publisher_ = std::make_unique<ImuPublisher>(
+        *this,
+        "imu",
+        config_.tf_prefix + "_imu_frame",
+        imu_correction,
+        time_converter_);
   }
-  imu_publisher_ = std::make_unique<ImuPublisher>(
-      *this,
-      "imu",
-      config_.tf_prefix + "_imu_frame",
-      imu_correction,
-      time_converter_);
 
   if (config_.fps_display) {
-    fps_display_ = std::make_unique<FpsDisplay>(config_.tf_prefix, config_.fps, config_.imu_hz);
+    fps_display_ = std::make_unique<FpsDisplay>(config_.tf_prefix, config_.fps, config_.noimu ? 0 : config_.imu_hz);
     if (fps_display_->available()) {
       // 在 executor 线程上跑：两个计数接口都线程安全，读线程每组帧 / 每批 IMU 只加一次计数。
       fps_display_timer_ = create_wall_timer(kFpsDisplayInterval, [this] {
-        fps_display_->update(image_publisher_->frameCounts(), imu_publisher_->packetCount());
+        fps_display_->update(
+            image_publisher_->frameCounts(),
+            imu_publisher_ ? imu_publisher_->packetCount() : std::nullopt);
       });
     } else {
       RCLCPP_INFO(get_logger(), "No controlling terminal, fps_display disabled.");
@@ -219,7 +225,9 @@ void OakFfcCameraImuComponent::connectDevice() {
   }
 
   image_publisher_->attach(device_->getOutputQueue("sync", config.image_queue_size, false), config.cam_board_sockets);
-  imu_publisher_->attach(device_->getOutputQueue("imu", config.imu_queue_size, false));
+  if (imu_publisher_) {
+    imu_publisher_->attach(device_->getOutputQueue("imu", config.imu_queue_size, false));
+  }
 }
 
 std::vector<std::string> OakFfcCameraImuComponent::resolveStreamingSockets(
@@ -277,7 +285,9 @@ std::vector<std::string> OakFfcCameraImuComponent::resolveStreamingSockets(
 void OakFfcCameraImuComponent::disconnectDevice() {
   // 先停读线程，再关设备，避免读线程访问已销毁的队列。
   image_publisher_->detach();
-  imu_publisher_->detach();
+  if (imu_publisher_) {
+    imu_publisher_->detach();
+  }
   {
     std::lock_guard<std::mutex> lock(control_mutex_);
     camera_control_queues_.clear();
@@ -290,7 +300,8 @@ void OakFfcCameraImuComponent::disconnectDevice() {
 }
 
 bool OakFfcCameraImuComponent::deviceHealthy() const {
-  return device_ && !device_->isClosed() && image_publisher_->healthy() && imu_publisher_->healthy();
+  return device_ && !device_->isClosed() && image_publisher_->healthy() &&
+         (!imu_publisher_ || imu_publisher_->healthy());
 }
 
 bool OakFfcCameraImuComponent::waitFor(std::chrono::milliseconds duration) {

@@ -1,7 +1,7 @@
 """USB2 + 厂商原生黑白 + 400p@30 的 oak.launch.py 预设。
 
     ros2 launch oak_ros2 oak_usb2_mono.launch.py
-    ros2 launch oak_ros2 oak_usb2_mono.launch.py foxglove:=false
+    ros2 launch oak_ros2 oak_usb2_mono.launch.py foxglove:=true   # 地面调试时实时看图（默认不开）
 
 - usb_speed=high：强制协商 USB2，避开 USB3 在 GNSS L1 附近的宽带射频噪声。
 - camera_type=mono：MonoCamera 节点，由厂商固件按 MONO 模式出 GRAY8，不做彩色转灰度。

@@ -74,6 +74,7 @@ class BagRecorderComponent : public rclcpp::Node {
   int64_t record_period_ns_ = 0;  // 图像抽帧间隔，0 = 不抽帧
   std::vector<std::string> cam_board_sockets_;
   std::string imu_topic_;
+  bool noimu_ = false;
   std::string isp_meta_topic_;
 
   rclcpp::Service<oak_interfaces::srv::Record>::SharedPtr service_;

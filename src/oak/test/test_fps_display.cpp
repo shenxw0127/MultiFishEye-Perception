@@ -68,6 +68,12 @@ TEST(FpsDisplay, FormatsUnknownImu) {
       formatFpsLine("oak", {{"CAM_A", 30.0}}, 30, std::nullopt, 200, false), "[oak fps] CAM_A 30.0 /30  IMU  -- /200");
 }
 
+TEST(FpsDisplay, OmitsImuWhenDisabled) {
+  // noimu：imu_target_hz 传 0，不显示 IMU 一栏。
+  EXPECT_EQ(formatFpsLine("oak", {{"CAM_C", 30.0}, {"CAM_D", 29.9}}, 30, std::nullopt, 0, false),
+            "[oak fps] CAM_C 30.0  CAM_D 29.9 /30");
+}
+
 TEST(FpsDisplay, FormatsWaitingWhenDisconnected) {
   EXPECT_EQ(formatFpsLine("oak", {}, 30, std::nullopt, 200, false), "[oak fps] waiting for device...");
 }
